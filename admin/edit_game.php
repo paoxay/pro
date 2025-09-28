@@ -1,13 +1,18 @@
 <?php
-// File: admin/edit_game.php (Upgraded Version)
-require_once 'admin_header.php';
+// File: admin/edit_game.php (Restructured and Corrected Version)
+
+// --- PART 1: ALL PHP LOGIC FIRST (No HTML Output) ---
+require_once 'auth_check.php'; // Includes session_start()
 require_once 'db_connect.php';
 
 $error_message = "";
 $game_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-if ($game_id <= 0) { die("<h2>Error: Invalid Game ID</h2>"); }
+if ($game_id <= 0) {
+    header("location: manage_games.php");
+    exit;
+}
 
-// --- Process Form Submission ---
+// Handle form submission BEFORE any HTML is outputted
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $conn->begin_transaction();
     try {
@@ -15,11 +20,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $game_name = trim($_POST['game_name']);
         $description = $_POST['description'];
         $status = $_POST['status'];
+        $exchange_rate = (float)($_POST['exchange_rate'] ?? 1.0);
+        $default_markup = (int)($_POST['default_markup'] ?? 15);
         $current_image_path = $_POST['current_image'];
         $image_path = $current_image_path;
 
         if (isset($_FILES["game_image"]) && $_FILES["game_image"]["error"] == 0) {
             $target_dir = "../uploads/games/";
+             if (!is_dir($target_dir)) { mkdir($target_dir, 0755, true); }
             $new_filename = uniqid() . '-' . basename($_FILES["game_image"]["name"]);
             if (move_uploaded_file($_FILES["game_image"]["tmp_name"], $target_dir . $new_filename)) {
                 if (!empty($current_image_path) && file_exists("../" . $current_image_path)) {
@@ -29,12 +37,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             }
         }
 
-        $stmt_game = $conn->prepare("UPDATE games SET name = ?, description = ?, status = ?, image_url = ? WHERE id = ?");
-        $stmt_game->bind_param("ssssi", $game_name, $description, $status, $image_path, $game_id_post);
+        $stmt_game = $conn->prepare("UPDATE games SET name = ?, description = ?, status = ?, image_url = ?, exchange_rate = ?, default_markup = ? WHERE id = ?");
+        $stmt_game->bind_param("ssssdii", $game_name, $description, $status, $image_path, $exchange_rate, $default_markup, $game_id_post);
         $stmt_game->execute();
         $stmt_game->close();
 
-        // Easiest way to update fields: Delete all old ones and insert the new set
         $stmt_delete_fields = $conn->prepare("DELETE FROM game_fields WHERE game_id = ?");
         $stmt_delete_fields->bind_param("i", $game_id_post);
         $stmt_delete_fields->execute();
@@ -58,35 +65,47 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
 
         $conn->commit();
+        // This header() call will now work perfectly!
         header("location: manage_games.php");
         exit();
+
     } catch (Exception $e) {
         $conn->rollback();
         $error_message = "ເກີດຂໍ້ຜິດພາດ: " . $e->getMessage();
     }
 }
 
-// --- Fetch Existing Data to show in form ---
+// --- PART 2: DATA FETCHING FOR PAGE DISPLAY ---
+// This part runs only if it's a GET request or if the POST failed.
 $stmt_get_game = $conn->prepare("SELECT * FROM games WHERE id = ?");
 $stmt_get_game->bind_param("i", $game_id);
 $stmt_get_game->execute();
 $result_game = $stmt_get_game->get_result();
-if ($result_game->num_rows === 0) { die("<h2>Error: Game not found</h2>"); }
-$game = $result_game->fetch_assoc();
+if ($result_game->num_rows === 0) {
+    $error_message = "Error: Game not found";
+    $game = []; // Create empty array to prevent errors in the HTML form
+} else {
+    $game = $result_game->fetch_assoc();
+}
 $stmt_get_game->close();
 
 $stmt_get_fields = $conn->prepare("SELECT * FROM game_fields WHERE game_id = ? ORDER BY display_order ASC");
 $stmt_get_fields->bind_param("i", $game_id);
 $stmt_get_fields->execute();
 $fields = $stmt_get_fields->get_result();
+
+
+// --- PART 3: HTML OUTPUT STARTS HERE ---
+// Now it's safe to include the header file.
+require_once 'admin_header.php';
 ?>
-<script src="https://cdn.tiny.cloud/1/g4jmj6x6pprdq59j9vrcdygu4q2qdoezt8oetkowtcvbn4uj/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
+<script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
 <script>
-  tinymce.init({ selector: 'textarea#game_description', /* ... same config as add_game ... */ });
+  tinymce.init({ selector: 'textarea#game_description' });
 </script>
 
 <div class="container-fluid">
-    <h1 class="h3 mb-4 text-gray-800">ແກ້ໄຂເກມ: <?php echo htmlspecialchars($game['name']); ?></h1>
+    <h1 class="h3 mb-4 text-gray-800">ແກ້ໄຂເກມ: <?php echo htmlspecialchars($game['name'] ?? 'Error'); ?></h1>
     <?php if(!empty($error_message)): ?> <div class="alert alert-danger"><?php echo $error_message; ?></div> <?php endif; ?>
     
     <form action="edit_game.php?id=<?php echo $game_id; ?>" method="post" enctype="multipart/form-data">
@@ -96,14 +115,30 @@ $fields = $stmt_get_fields->get_result();
         <div class="card shadow mb-4">
             <div class="card-body">
                 <div class="mb-3"><label class="form-label fw-bold">1. ຮູບພາບເກມ:</label>
+                    <?php if(!empty($game['image_url'])): ?>
                     <div class="mb-2">
                         <img src="../<?php echo htmlspecialchars($game['image_url']); ?>" style="max-width: 100px; border-radius: 5px;">
                     </div>
+                    <?php endif; ?>
                     <input type="file" name="game_image" class="form-control" accept="image/*">
                     <small class="form-text text-muted">ເລືອກໄຟລ໌ໃໝ່ຖ້າຕ້ອງການປ່ຽນ</small>
                 </div>
                 <div class="mb-3"><label class="form-label fw-bold">2. ຊື່ເກມ:</label><input type="text" name="game_name" class="form-control" value="<?php echo htmlspecialchars($game['name']); ?>" required></div>
-                <div class="mb-3"><label class="form-label fw-bold">4. ເນື້ອຫາ/ຄຳອະທິບາຍ:</label><textarea id="game_description" name="description"><?php echo htmlspecialchars($game['description']); ?></textarea></div>
+                <div class="mb-3"><label class="form-label fw-bold">3. ເນື້ອຫາ/ຄຳອະທິບາຍ:</label><textarea id="game_description" name="description"><?php echo htmlspecialchars($game['description']); ?></textarea></div>
+                
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-bold">ອັດຕາແລກປ່ຽນ (ຈາກ IDR, ຕົວຢ່າງ: 0.0014):</label>
+                        <input type="text" name="exchange_rate" class="form-control" value="<?php echo htmlspecialchars($game['exchange_rate']); ?>">
+                        <small class="form-text text-muted">ໃຊ້ສະເພາະເກມທີ່ດຶງຈາກ API TokoVoucher.</small>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-bold">ກຳໄລເລີ່ມຕົ້ນ (%):</label>
+                        <input type="number" name="default_markup" class="form-control" value="<?php echo htmlspecialchars($game['default_markup']); ?>">
+                        <small class="form-text text-muted">ລະບົບຈະເອົາ % ນີ້ໄປບວກໃສ່ລາຄາຕົ້ນທຶນ.</small>
+                    </div>
+                </div>
+
                 <div class="mb-3"><label class="form-label fw-bold">ສະຖານະ:</label>
                     <select name="status" class="form-select">
                         <option value="active" <?php echo ($game['status'] == 'active') ? 'selected' : ''; ?>>Active</option>
@@ -115,7 +150,7 @@ $fields = $stmt_get_fields->get_result();
 
         <div class="card shadow mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h6 class="m-0 font-weight-bold text-primary">3. ຕົວກຳຫນົດຊ່ອງຂໍ້ມູນ</h6>
+                <h6 class="m-0 font-weight-bold text-primary">4. ຕົວກຳຫນົດຊ່ອງຂໍ້ມູນ</h6>
                 <button type="button" id="addFieldBtn" class="btn btn-sm btn-success"><i class="fas fa-plus"></i> ເພີ່ມຊ່ອງຂໍ້ມູນ</button>
             </div>
             <div class="card-body" id="fieldsContainer">
@@ -130,7 +165,7 @@ $fields = $stmt_get_fields->get_result();
                             </select>
                         </div>
                         <div class="col-md-3 options-container" style="<?php echo ($field['field_type'] == 'select') ? '' : 'display: none;'; ?>">
-                            <input name="field_options[]" class="form-control" placeholder="ໂຕເລືອກ (ຄั่นດ້ວຍ,)" value="<?php echo htmlspecialchars($field['field_options']); ?>">
+                            <input name="field_options[]" class="form-control" placeholder="ໂຕເລືອກ (ຄັ່ນດ້ວຍ,)" value="<?php echo htmlspecialchars($field['field_options']); ?>">
                         </div>
                         <div class="col-md-1"><button type="button" class="btn btn-danger w-100 removeFieldBtn" title="ລຶບ"><i class="fas fa-trash"></i></button></div>
                     </div>
@@ -142,8 +177,43 @@ $fields = $stmt_get_fields->get_result();
     </form>
 </div>
 
-<template id="fieldRowTemplate"> ... (The template is exactly the same as in add_game.php) ... </template>
-<script> ... (The JavaScript is exactly the same as in add_game.php) ... </script>
+<template id="fieldRowTemplate">
+    <div class="row g-2 mb-3 p-2 border rounded field-row align-items-center">
+        <div class="col-md-5"><input type="text" name="field_label[]" class="form-control" placeholder="ປ້າຍກຳກັບ (ເຊັ່ນ: ກະລຸນາປ້ອນ User ID)" required></div>
+        <div class="col-md-3">
+            <select name="field_type[]" class="form-select field-type-select">
+                <option value="text" selected>Text Input</option>
+                <option value="select">Select Dropdown</option>
+                <option value="number">Number Input</option>
+            </select>
+        </div>
+        <div class="col-md-3 options-container" style="display: none;">
+            <input name="field_options[]" class="form-control" placeholder="ໂຕເລືອກ (ຄັ່ນດ້ວຍ,) ເຊັ່ນ ASIA,EU">
+        </div>
+        <div class="col-md-1"><button type="button" class="btn btn-danger w-100 removeFieldBtn" title="ລຶບ"><i class="fas fa-trash"></i></button></div>
+    </div>
+</template>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const container = document.getElementById('fieldsContainer');
+    const template = document.getElementById('fieldRowTemplate');
+    document.getElementById('addFieldBtn').addEventListener('click', function() {
+        const clone = template.content.cloneNode(true);
+        container.appendChild(clone);
+    });
+    container.addEventListener('click', function(e) {
+        const removeBtn = e.target.closest('.removeFieldBtn');
+        if (removeBtn) { removeBtn.closest('.field-row').remove(); }
+    });
+    container.addEventListener('change', function(e) {
+        if (e.target.classList.contains('field-type-select')) {
+            const row = e.target.closest('.field-row');
+            const optionsContainer = row.querySelector('.options-container');
+            optionsContainer.style.display = (e.target.value === 'select') ? 'block' : 'none';
+        }
+    });
+});
+</script>
 
 </div>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>

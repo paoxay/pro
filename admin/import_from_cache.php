@@ -1,5 +1,5 @@
 <?php
-// File: admin/import_from_cache.php (Reads from the fast local cache)
+// File: admin/import_from_cache.php (Reads from the fast local cache) - FINAL VERSION with FATAL ERROR FIX
 require_once 'db_connect.php';
 require_once 'auth_check.php';
 
@@ -51,7 +51,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['import_game'])) {
     $game_name = $_POST['game_name'];
     $operator_code = $_POST['operator_code'];
     $supplier_id = $_POST['supplier_id'];
+    $exchange_rate = (float)($_POST['exchange_rate'] ?? 0.0014);
+    $default_markup = (int)($_POST['default_markup'] ?? 15);
     $packages = $_POST['packages'] ?? [];
+
     if (empty($game_name) || empty($operator_code) || empty($supplier_id) || empty($packages)) {
         $error_message = "ຂໍ້ມູນບໍ່ຄົບຖ້ວນ.";
     } else {
@@ -63,11 +66,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['import_game'])) {
             $stmt_check_game->execute();
             $game_result = $stmt_check_game->get_result();
             if ($game_result->num_rows > 0) {
-                $game_id = $game_result->fetch_assoc()['id'];
-                $success_message .= "Game '$game_name' already exists. Updating packages... <br>";
+                $game_row = $game_result->fetch_assoc();
+                $game_id = $game_row['id'];
+                
+                $stmt_update_game = $conn->prepare("UPDATE games SET name = ?, exchange_rate = ?, default_markup = ? WHERE id = ?");
+                $stmt_update_game->bind_param("sdii", $game_name, $exchange_rate, $default_markup, $game_id);
+                $stmt_update_game->execute();
+                $stmt_update_game->close();
+                $success_message .= "Game '$game_name' already exists. Updating settings and packages... <br>";
+
             } else {
-                $stmt_game = $conn->prepare("INSERT INTO games (name, status, api_supplier_id, api_operator_code) VALUES (?, 'active', ?, ?)");
-                $stmt_game->bind_param("sis", $game_name, $supplier_id, $operator_code);
+                $stmt_game = $conn->prepare("INSERT INTO games (name, status, api_supplier_id, api_operator_code, exchange_rate, default_markup) VALUES (?, 'active', ?, ?, ?, ?)");
+                
+                // /// START: ຈຸດທີ່ແກ້ໄຂ ///
+                // ປ່ຽນ "sisddi" (6 ໂຕ) ເປັນ "sisdd" (5 ໂຕ) ໃຫ້ກົງກັບຈຳນວນໂຕປ່ຽນ (?) ໃນ SQL
+                $stmt_game->bind_param("sisdd", $game_name, $supplier_id, $operator_code, $exchange_rate, $default_markup);
+                // /// END: ຈຸດທີ່ແກ້ໄຂ ///
+
                 $stmt_game->execute();
                 $game_id = $conn->insert_id;
                 $stmt_game->close();
@@ -79,7 +94,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['import_game'])) {
             $upsert_count = 0;
             foreach($packages as $api_code => $pkg_data) {
                 if(isset($pkg_data['import'])) {
-                    $stmt_insert_pkg->bind_param("isdds", $game_id, $pkg_data['name'], $pkg_data['selling_price'], $pkg_data['cost_price'], $api_code);
+                    $cost_price_lak = (float)$pkg_data['cost_price'];
+                    $selling_price_lak = (float)$pkg_data['selling_price'];
+
+                    $stmt_insert_pkg->bind_param("isdds", $game_id, $pkg_data['name'], $selling_price_lak, $cost_price_lak, $api_code);
                     $stmt_insert_pkg->execute();
                     $upsert_count++;
                 }
@@ -114,6 +132,16 @@ $suppliers = $conn->query("SELECT id, name FROM api_suppliers WHERE is_active = 
             <div class="card shadow mb-4">
                 <div class="card-header"><h6 class="m-0 font-weight-bold text-primary">ກຳຫນົດລາຄາຂາຍ ແລະ ນຳເຂົ້າ</h6></div>
                 <div class="card-body">
+                    <div class="row bg-light p-3 rounded mb-4 border">
+                         <div class="col-md-6 mb-3">
+                            <label for="exchangeRateInput" class="form-label fw-bold">5. ປ້ອນອັດຕາແລກປ່ຽນ (ຈາກ IDR):</label>
+                            <input type="text" id="exchangeRateInput" name="exchange_rate" class="form-control" value="0.0014">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="markupInput" class="form-label fw-bold">6. ປ້ອນ % ກຳໄລເລີ່ມຕົ້ນ (ສຳລັບທຸກລາຍການ):</label>
+                            <input type="number" id="markupInput" name="default_markup" class="form-control" value="20">
+                        </div>
+                    </div>
                     <div id="packagesContainer" class="table-responsive"></div>
                     <div id="hiddenInputsContainer"></div>
                     <button type="submit" name="import_game" class="btn btn-primary mt-3"><i class="fas fa-cloud-download-alt"></i> ນຳເຂົ້າ/ອັບເດດ ເກມນີ້</button>
@@ -131,6 +159,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const packagesSection = document.getElementById('packagesSection');
     const packagesContainer = document.getElementById('packagesContainer');
     const hiddenInputsContainer = document.getElementById('hiddenInputsContainer');
+    const exchangeRateInput = document.getElementById('exchangeRateInput');
+    const markupInput = document.getElementById('markupInput');
 
     function apiFetch(action, params = {}) {
         const url = new URL(window.location.href.split('?')[0]);
@@ -147,6 +177,99 @@ document.addEventListener('DOMContentLoaded', function() {
         selectEl.innerHTML = `<option value="">${defaultText}</option>`;
         selectEl.disabled = true;
     }
+
+    function updateProfit(row) {
+        const costPriceLAK = parseFloat(row.querySelector('input[name*="[cost_price]"]').value) || 0;
+        const sellingPrice = parseFloat(row.querySelector('.selling-price-input').value) || 0;
+        const profit = sellingPrice - costPriceLAK;
+        
+        const profitCell = row.querySelector('.profit-cell');
+        profitCell.innerText = profit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        profitCell.style.color = profit >= 0 ? 'green' : 'red';
+    }
+
+    function recalculateRow(row) {
+        const costPriceIDR = parseFloat(row.dataset.costIdr);
+        const exchangeRate = parseFloat(exchangeRateInput.value) || 0.0014;
+        const markupPercent = parseInt(row.querySelector('.markup-row-input').value) || 20;
+        const sellingPriceInput = row.querySelector('.selling-price-input');
+        
+        const costPriceLAK = costPriceIDR * exchangeRate;
+        const sellingPrice = costPriceLAK * (1 + (markupPercent / 100));
+        const suggestedPrice = Math.ceil(sellingPrice / 1000) * 1000;
+
+        row.querySelector('.cost-lak-cell').innerText = costPriceLAK.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        row.querySelector('input[name*="[cost_price]"]').value = costPriceLAK.toFixed(2);
+        sellingPriceInput.value = suggestedPrice;
+        
+        updateProfit(row);
+    }
+    
+    function renderPackagesTable(packages) {
+        let gameName = operatorSelect.options[operatorSelect.selectedIndex].text;
+        let operatorCode = operatorSelect.value;
+        let defaultMarkup = parseInt(markupInput.value) || 20;
+
+        let tableHTML = `<table class="table table-bordered table-hover align-middle">
+                            <thead>
+                                <tr>
+                                    <th><input type="checkbox" id="checkAll" checked></th>
+                                    <th>ຊື່ແພັກເກັດ</th>
+                                    <th class="text-end">ຕົ້ນທຶນ (IDR)</th>
+                                    <th class="text-end">ຕົ້ນທຶນ (LAK)</th>
+                                    <th style="width: 120px;">% ຂາຍ</th>
+                                    <th style="width: 150px;">ລາຄາຂາຍ (LAK)</th>
+                                    <th class="text-end" style="width: 150px;">ກຳໄລ (LAK)</th>
+                                </tr>
+                            </thead>
+                            <tbody>`;
+        
+        if (packages.length === 0) { 
+            tableHTML += `<tr><td colspan="7" class="text-center">ບໍ່ພົບແພັກເກັດ.</td></tr>`; 
+        } else {
+            packages.forEach(pkg => {
+                let costPriceIDR = parseInt(pkg.cost_price);
+                tableHTML += `<tr data-cost-idr="${costPriceIDR}">
+                    <td><input type="checkbox" name="packages[${pkg.product_code}][import]" checked></td>
+                    <td><input type="hidden" name="packages[${pkg.product_code}][name]" value="${pkg.product_name}">${pkg.product_name}</td>
+                    <td class="text-end">${costPriceIDR.toLocaleString()}</td>
+                    <td class="text-end cost-lak-cell">...</td>
+                    <td><input type="number" class="form-control form-control-sm markup-row-input" value="${defaultMarkup}"></td>
+                    <td>
+                        <input type="hidden" name="packages[${pkg.product_code}][cost_price]" value="0">
+                        <input type="number" class="form-control form-control-sm selling-price-input" name="packages[${pkg.product_code}][selling_price]" value="0" required>
+                    </td>
+                    <td class="text-end profit-cell fw-bold">...</td>
+                </tr>`;
+            });
+        }
+        tableHTML += `</tbody></table>`;
+        packagesContainer.innerHTML = tableHTML;
+        hiddenInputsContainer.innerHTML = `<input type="hidden" name="game_name" value="${gameName}"><input type="hidden" name="operator_code" value="${operatorCode}"><input type="hidden" name="supplier_id" value="${supplierSelect.value}">`;
+        
+        document.querySelectorAll('#packagesContainer tbody tr').forEach(row => recalculateRow(row));
+        document.getElementById('checkAll').addEventListener('change', e => document.querySelectorAll('input[name*="[import]"]').forEach(c => c.checked = e.target.checked));
+    }
+
+    exchangeRateInput.addEventListener('input', function() {
+        document.querySelectorAll('#packagesContainer tbody tr').forEach(row => recalculateRow(row));
+    });
+
+    markupInput.addEventListener('input', function() {
+        const newMarkup = this.value;
+        document.querySelectorAll('.markup-row-input').forEach(input => input.value = newMarkup);
+        document.querySelectorAll('#packagesContainer tbody tr').forEach(row => recalculateRow(row));
+    });
+    
+    packagesContainer.addEventListener('input', function(e) {
+        if (e.target.classList.contains('markup-row-input')) {
+            recalculateRow(e.target.closest('tr'));
+        }
+        if (e.target.classList.contains('selling-price-input')) {
+            updateProfit(e.target.closest('tr'));
+        }
+    });
+
     supplierSelect.addEventListener('change', function() {
         resetSelect(categorySelect, '--'); resetSelect(operatorSelect, '--'); resetSelect(jenisSelect, '--');
         packagesSection.style.display = 'none';
@@ -185,28 +308,6 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
-    function renderPackagesTable(packages) {
-        let gameName = operatorSelect.options[operatorSelect.selectedIndex].text;
-        let operatorCode = operatorSelect.value;
-        let tableHTML = `<table class="table table-bordered table-hover"><thead><tr><th><input type="checkbox" id="checkAll" checked></th><th>ຊື່ແພັກເກັດ</th><th>ຕົ້ນທຶນ</th><th>ລາຄາຂາຍ</th></tr></thead><tbody>`;
-        if (packages.length === 0) { tableHTML += `<tr><td colspan="4" class="text-center">ບໍ່ພົບແພັກເກັດ.</td></tr>`; }
-        else {
-            packages.forEach(pkg => {
-                let costPrice = parseInt(pkg.cost_price);
-                let suggestedPrice = Math.ceil(costPrice * 1.15 / 1000) * 1000;
-                tableHTML += `<tr>
-                    <td><input type="checkbox" name="packages[${pkg.product_code}][import]" checked></td>
-                    <td><input type="hidden" name="packages[${pkg.product_code}][name]" value="${pkg.product_name}">${pkg.product_name}</td>
-                    <td><input type="hidden" name="packages[${pkg.product_code}][cost_price]" value="${costPrice}">${costPrice.toLocaleString()}</td>
-                    <td><input type="number" class="form-control" name="packages[${pkg.product_code}][selling_price]" value="${suggestedPrice}" required></td>
-                </tr>`;
-            });
-        }
-        tableHTML += `</tbody></table>`;
-        packagesContainer.innerHTML = tableHTML;
-        hiddenInputsContainer.innerHTML = `<input type="hidden" name="game_name" value="${gameName}"><input type="hidden" name="operator_code" value="${operatorCode}"><input type="hidden" name="supplier_id" value="${supplierSelect.value}">`;
-        document.getElementById('checkAll').addEventListener('change', e => document.querySelectorAll('input[name*="[import]"]').forEach(c => c.checked = e.target.checked));
-    }
 });
 </script>
 </div>

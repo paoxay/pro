@@ -17,23 +17,29 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $game_name = trim($_POST["game_name"]);
             $description = $_POST["description"];
             $status = $_POST["status"];
+            // -- ຄ່າໃໝ່ທີ່ເພີ່ມເຂົ້າມາ --
+            $exchange_rate = (float)($_POST['exchange_rate'] ?? 1.0);
+            $default_markup = (int)($_POST['default_markup'] ?? 15);
             $image_path = null;
 
             if (isset($_FILES["game_image"]) && $_FILES["game_image"]["error"] == 0) {
                 $target_dir = "../uploads/games/";
+                if (!is_dir($target_dir)) { mkdir($target_dir, 0755, true); }
                 $new_filename = uniqid() . '-' . basename($_FILES["game_image"]["name"]);
                 if (move_uploaded_file($_FILES["game_image"]["tmp_name"], $target_dir . $new_filename)) {
                     $image_path = "uploads/games/" . $new_filename;
                 } else {
-                    throw new Exception("ບໍ່สามารถອັບໂຫລດຮູບໄດ້.");
+                    throw new Exception("ບໍ່ສາມາດອັບໂຫລດຮູບໄດ້.");
                 }
             }
 
-            $stmt_game = $conn->prepare("INSERT INTO games (name, description, status, image_url) VALUES (?, ?, ?, ?)");
+            // -- ອັບເດດຄຳສັ່ງ SQL ໃຫ້ຮອງຮັບຄ່າໃໝ່ --
+            $stmt_game = $conn->prepare("INSERT INTO games (name, description, status, image_url, exchange_rate, default_markup) VALUES (?, ?, ?, ?, ?, ?)");
             if ($stmt_game === false) {
                 throw new Exception("SQL Prepare Failed for games: " . $conn->error);
             }
-            $stmt_game->bind_param("ssss", $game_name, $description, $status, $image_path);
+            // -- ອັບເດດ bind_param ໃຫ້ກົງກັນ --
+            $stmt_game->bind_param("ssssdi", $game_name, $description, $status, $image_path, $exchange_rate, $default_markup);
             $stmt_game->execute();
             $game_id = $conn->insert_id;
             $stmt_game->close();
@@ -47,20 +53,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     throw new Exception("SQL Prepare Failed for game_fields: " . $conn->error);
                 }
                 
-                // Bind parameters ONCE outside the loop
                 $stmt_field->bind_param("isssssi", $game_id, $label_var, $name_var, $placeholder_var, $type_var, $options_var, $order_var);
 
                 foreach ($_POST['field_label'] as $index => $current_label) {
                     if (!empty($current_label)) {
-                        // Assign values to variables that are bound
                         $label_var = $current_label;
-                        $name_var = strtolower(trim(preg_replace('/[^A-Za-z0-N-9]+/', '_', $label_var), '_'));
+                        $name_var = strtolower(trim(preg_replace('/[^A-Za-z0-9]+/', '_', $label_var), '_'));
                         $placeholder_var = $label_var;
                         $type_var = $_POST['field_type'][$index] ?? 'text';
                         $options_var = ($type_var === 'select') ? ($_POST['field_options'][$index] ?? '') : null;
                         $order_var = $index + 1;
                         
-                        // Execute for each row of data
                         if (!$stmt_field->execute()) {
                             throw new Exception("Execute failed for game_fields: " . $stmt_field->error);
                         }
@@ -80,7 +83,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     }
 }
 ?>
-<script src="https://cdn.tiny.cloud/1/g4jmj6x6pprdq59j9vrcdygu4q2qdoezt8oetkowtcvbn4uj/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
+<script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
 <script>
   tinymce.init({
     selector: 'textarea#game_description',
@@ -98,14 +101,27 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             <div class="card-body">
                 <div class="mb-3"><label class="form-label fw-bold">1. ອັບໂຫລດຮູບພາບເກມ:</label><input type="file" name="game_image" class="form-control" accept="image/*" required></div>
                 <div class="mb-3"><label class="form-label fw-bold">2. ໃສ່ຊື່ເກມ:</label><input type="text" name="game_name" class="form-control" required></div>
-                <div class="mb-3"><label class="form-label fw-bold">4. ເນື້ອຫາ/ຄຳອະທິບາຍ (ສະແດງໃນໜ້າເຕີມເກມ):</label><textarea id="game_description" name="description"></textarea></div>
+                <div class="mb-3"><label class="form-label fw-bold">3. ເນື້ອຫາ/ຄຳອະທິບາຍ (ສະແດງໃນໜ້າເຕີມເກມ):</label><textarea id="game_description" name="description"></textarea></div>
+                
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-bold">ອັດຕາແລກປ່ຽນ (ຈາກ IDR, ຕົວຢ່າງ: 0.0014):</label>
+                        <input type="text" name="exchange_rate" class="form-control" value="0.0014">
+                        <small class="form-text text-muted">ໃຊ້ສະເພາະເກມທີ່ດຶງຈາກ API TokoVoucher.</small>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-bold">ກຳໄລເລີ່ມຕົ້ນ (%):</label>
+                        <input type="number" name="default_markup" class="form-control" value="15">
+                        <small class="form-text text-muted">ລະບົບຈະເອົາ % ນີ້ໄປບວກໃສ່ລາຄາຕົ້ນທຶນ.</small>
+                    </div>
+                </div>
                 <div class="mb-3"><label class="form-label fw-bold">ສະຖານະ:</label><select name="status" class="form-select"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
             </div>
         </div>
 
         <div class="card shadow mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h6 class="m-0 font-weight-bold text-primary">3. ຕົວກຳຫນົດຊ່ອງຂໍ້ມູນ (UID, Server, etc.)</h6>
+                <h6 class="m-0 font-weight-bold text-primary">4. ຕົວກຳຫນົດຊ່ອງຂໍ້ມູນ (UID, Server, etc.)</h6>
                 <button type="button" id="addFieldBtn" class="btn btn-sm btn-success"><i class="fas fa-plus"></i> ເພີ່ມຊ່ອງຂໍ້ມູນ</button>
             </div>
             <div class="card-body" id="fieldsContainer">
@@ -119,7 +135,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
 <template id="fieldRowTemplate">
     <div class="row g-2 mb-3 p-2 border rounded field-row align-items-center">
-        <div class="col-md-5"><input type="text" name="field_label[]" class="form-control" placeholder="ປ້າຍກຳກັບ (เช่น: กรอก User ID)" required></div>
+        <div class="col-md-5"><input type="text" name="field_label[]" class="form-control" placeholder="ປ້າຍກຳກັບ (ເຊັ່ນ: ກະລຸນາປ້ອນ User ID)" required></div>
         <div class="col-md-3">
             <select name="field_type[]" class="form-select field-type-select">
                 <option value="text" selected>Text Input</option>
@@ -128,7 +144,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             </select>
         </div>
         <div class="col-md-3 options-container" style="display: none;">
-            <input name="field_options[]" class="form-control" placeholder="ໂຕເລືອກ (ຄั่นດ້ວຍ,) ເຊັ່ນ ASIA,EU">
+            <input name="field_options[]" class="form-control" placeholder="ໂຕເລືອກ (ຄັ່ນດ້ວຍ,) ເຊັ່ນ ASIA,EU">
         </div>
         <div class="col-md-1"><button type="button" class="btn btn-danger w-100 removeFieldBtn" title="ລຶບ"><i class="fas fa-trash"></i></button></div>
     </div>
@@ -144,13 +160,11 @@ document.addEventListener('DOMContentLoaded', function() {
         container.appendChild(clone);
     }
     
-    // Add one field by default when the page loads
     addField();
 
     document.getElementById('addFieldBtn').addEventListener('click', addField);
 
     container.addEventListener('click', function(e) {
-        // Find the closest remove button to the element that was clicked
         const removeBtn = e.target.closest('.removeFieldBtn');
         if (removeBtn) {
             removeBtn.closest('.field-row').remove();
