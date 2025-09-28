@@ -1,0 +1,215 @@
+<?php
+// File: admin/import_from_cache.php (Reads from the fast local cache)
+require_once 'db_connect.php';
+require_once 'auth_check.php';
+
+if (isset($_GET['action'])) {
+    header('Content-Type: application/json');
+    $supplier_id = $_GET['supplier_id'] ?? 0;
+    if ($supplier_id <= 0) { die(json_encode(['success' => false, 'message' => 'Invalid Supplier ID'])); }
+    
+    $data = []; $sql = ''; $params = []; $types = '';
+    
+    switch ($_GET['action']) {
+        case 'get_categories':
+            $sql = "SELECT DISTINCT category AS val, category AS txt FROM api_cache_products WHERE api_supplier_id = ? ORDER BY category";
+            $types = "i"; $params[] = $supplier_id;
+            break;
+        case 'get_operators':
+            $category = $_GET['category'] ?? '';
+            $sql = "SELECT DISTINCT brand AS val, brand AS txt FROM api_cache_products WHERE api_supplier_id = ? AND category = ? ORDER BY brand";
+            $types = "is"; $params[] = $supplier_id; $params[] = $category;
+            break;
+        case 'get_jenis':
+            $brand = $_GET['brand'] ?? '';
+            $sql = "SELECT DISTINCT jenis AS val, jenis AS txt FROM api_cache_products WHERE api_supplier_id = ? AND brand = ? ORDER BY jenis";
+            $types = "is"; $params[] = $supplier_id; $params[] = $brand;
+            break;
+        case 'get_packages':
+            $jenis = $_GET['jenis'] ?? ''; $brand = $_GET['brand'] ?? '';
+            $sql = "SELECT product_code, product_name, cost_price FROM api_cache_products WHERE api_supplier_id = ? AND jenis = ? AND brand = ? ORDER BY cost_price";
+            $types = "iss"; $params[] = $supplier_id; $params[] = $jenis; $params[] = $brand;
+            break;
+    }
+    
+    if(!empty($sql)) {
+        $stmt = $conn->prepare($sql);
+        if ($stmt) {
+            if(!empty($types)) $stmt->bind_param($types, ...$params);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            while ($row = $result->fetch_assoc()) { $data[] = $row; }
+            $stmt->close();
+        }
+    }
+    echo json_encode(['success' => true, 'data' => $data]);
+    exit;
+}
+
+$success_message = ""; $error_message = "";
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['import_game'])) {
+    $game_name = $_POST['game_name'];
+    $operator_code = $_POST['operator_code'];
+    $supplier_id = $_POST['supplier_id'];
+    $packages = $_POST['packages'] ?? [];
+    if (empty($game_name) || empty($operator_code) || empty($supplier_id) || empty($packages)) {
+        $error_message = "ຂໍ້ມູນບໍ່ຄົບຖ້ວນ.";
+    } else {
+        $conn->begin_transaction();
+        try {
+            $game_id = null;
+            $stmt_check_game = $conn->prepare("SELECT id FROM games WHERE api_operator_code = ? AND api_supplier_id = ?");
+            $stmt_check_game->bind_param("si", $operator_code, $supplier_id);
+            $stmt_check_game->execute();
+            $game_result = $stmt_check_game->get_result();
+            if ($game_result->num_rows > 0) {
+                $game_id = $game_result->fetch_assoc()['id'];
+                $success_message .= "Game '$game_name' already exists. Updating packages... <br>";
+            } else {
+                $stmt_game = $conn->prepare("INSERT INTO games (name, status, api_supplier_id, api_operator_code) VALUES (?, 'active', ?, ?)");
+                $stmt_game->bind_param("sis", $game_name, $supplier_id, $operator_code);
+                $stmt_game->execute();
+                $game_id = $conn->insert_id;
+                $stmt_game->close();
+                $success_message .= "New game '$game_name' imported successfully. <br>";
+            }
+            $stmt_check_game->close();
+
+            $stmt_insert_pkg = $conn->prepare("REPLACE INTO game_packages (game_id, name, price, cost_price, api_product_code) VALUES (?, ?, ?, ?, ?)");
+            $upsert_count = 0;
+            foreach($packages as $api_code => $pkg_data) {
+                if(isset($pkg_data['import'])) {
+                    $stmt_insert_pkg->bind_param("isdds", $game_id, $pkg_data['name'], $pkg_data['selling_price'], $pkg_data['cost_price'], $api_code);
+                    $stmt_insert_pkg->execute();
+                    $upsert_count++;
+                }
+            }
+            $stmt_insert_pkg->close();
+            $conn->commit();
+            $success_message .= "Successfully inserted/updated $upsert_count packages.";
+        } catch (Exception $e) { $conn->rollback(); $error_message = "ເກີດຂໍ້ຜິດພາດ: " . $e->getMessage(); }
+    }
+}
+
+require_once 'admin_header.php';
+$suppliers = $conn->query("SELECT id, name FROM api_suppliers WHERE is_active = 1");
+?>
+<div class="container-fluid">
+    <h1 class="h3 mb-4 text-gray-800">Import Game from Cache</h1>
+    <?php if(!empty($success_message)): ?> <div class="alert alert-success"><?php echo $success_message; ?></div> <?php endif; ?>
+    <?php if(!empty($error_message)): ?> <div class="alert alert-danger"><?php echo $error_message; ?></div> <?php endif; ?>
+    <div class="card shadow mb-4">
+        <div class="card-header"><h6 class="m-0 font-weight-bold text-primary">ຂັ້ນຕອນ: ເລືອກເກມ ແລະ ແພັກເກັດຈາກ Cache</h6></div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3"><label class="form-label fw-bold">1. ເລືອກ Supplier:</label><select id="supplierSelect" class="form-select"><option value="">-- ກະລຸນາເລືອກ --</option><?php if ($suppliers && $suppliers->num_rows > 0): mysqli_data_seek($suppliers, 0); while($row = $suppliers->fetch_assoc()): ?><option value="<?php echo $row['id']; ?>"><?php echo htmlspecialchars($row['name']); ?></option><?php endwhile; endif; ?></select></div>
+                <div class="col-md-3"><label class="form-label fw-bold">2. ເລືອກໝວດໝູ່:</label><select id="categorySelect" class="form-select" disabled></select></div>
+                <div class="col-md-3"><label class="form-label fw-bold">3. ເລືອກເກມ:</label><select id="operatorSelect" class="form-select" disabled></select></div>
+                <div class="col-md-3"><label class="form-label fw-bold">4. ເລືອກປະເພດ:</label><select id="jenisSelect" class="form-select" disabled></select></div>
+            </div>
+        </div>
+    </div>
+    <div id="packagesSection" style="display:none;">
+        <form method="POST" action="import_from_cache.php">
+            <div class="card shadow mb-4">
+                <div class="card-header"><h6 class="m-0 font-weight-bold text-primary">ກຳຫນົດລາຄາຂາຍ ແລະ ນຳເຂົ້າ</h6></div>
+                <div class="card-body">
+                    <div id="packagesContainer" class="table-responsive"></div>
+                    <div id="hiddenInputsContainer"></div>
+                    <button type="submit" name="import_game" class="btn btn-primary mt-3"><i class="fas fa-cloud-download-alt"></i> ນຳເຂົ້າ/ອັບເດດ ເກມນີ້</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const supplierSelect = document.getElementById('supplierSelect');
+    const categorySelect = document.getElementById('categorySelect');
+    const operatorSelect = document.getElementById('operatorSelect');
+    const jenisSelect = document.getElementById('jenisSelect');
+    const packagesSection = document.getElementById('packagesSection');
+    const packagesContainer = document.getElementById('packagesContainer');
+    const hiddenInputsContainer = document.getElementById('hiddenInputsContainer');
+
+    function apiFetch(action, params = {}) {
+        const url = new URL(window.location.href.split('?')[0]);
+        url.searchParams.set('action', action);
+        url.searchParams.set('supplier_id', supplierSelect.value);
+        for(const key in params) { url.searchParams.set(key, params[key]); }
+        return fetch(url).then(res => res.json());
+    }
+    function populateSelect(selectEl, data, valueKey, textKey, defaultText) {
+        selectEl.innerHTML = `<option value="">${defaultText}</option>`;
+        if (data && Array.isArray(data)) { data.forEach(item => { selectEl.innerHTML += `<option value="${item[valueKey]}">${item[textKey]}</option>`; }); }
+    }
+    function resetSelect(selectEl, defaultText) {
+        selectEl.innerHTML = `<option value="">${defaultText}</option>`;
+        selectEl.disabled = true;
+    }
+    supplierSelect.addEventListener('change', function() {
+        resetSelect(categorySelect, '--'); resetSelect(operatorSelect, '--'); resetSelect(jenisSelect, '--');
+        packagesSection.style.display = 'none';
+        if (!this.value) return;
+        categorySelect.disabled = false; categorySelect.innerHTML = '<option>Loading...</option>';
+        apiFetch('get_categories').then(result => {
+            if (result.success) populateSelect(categorySelect, result.data, 'val', 'txt', '-- ເລືອກໝວດໝູ່ --');
+        });
+    });
+    categorySelect.addEventListener('change', function() {
+        resetSelect(operatorSelect, '--'); resetSelect(jenisSelect, '--');
+        packagesSection.style.display = 'none';
+        if (!this.value) return;
+        operatorSelect.disabled = false; operatorSelect.innerHTML = '<option>Loading...</option>';
+        apiFetch('get_operators', { category: this.value }).then(result => {
+            if (result.success) populateSelect(operatorSelect, result.data, 'val', 'txt', '-- ເລືອກເກມ --');
+        });
+    });
+    operatorSelect.addEventListener('change', function() {
+        resetSelect(jenisSelect, '--');
+        packagesSection.style.display = 'none';
+        if (!this.value) return;
+        jenisSelect.disabled = false; jenisSelect.innerHTML = '<option>Loading...</option>';
+        apiFetch('get_jenis', { brand: this.value }).then(result => {
+            if (result.success) populateSelect(jenisSelect, result.data, 'val', 'txt', '-- ເລືອກປະເພດ --');
+        });
+    });
+    jenisSelect.addEventListener('change', function() {
+        packagesSection.style.display = 'none';
+        if (!this.value) return;
+        packagesContainer.innerHTML = `<div class="text-center p-4"><div class="spinner-border"></div></div>`;
+        packagesSection.style.display = 'block';
+        apiFetch('get_packages', { jenis: this.value, brand: operatorSelect.value }).then(result => {
+            if (result.success && Array.isArray(result.data)) {
+                renderPackagesTable(result.data);
+            }
+        });
+    });
+    function renderPackagesTable(packages) {
+        let gameName = operatorSelect.options[operatorSelect.selectedIndex].text;
+        let operatorCode = operatorSelect.value;
+        let tableHTML = `<table class="table table-bordered table-hover"><thead><tr><th><input type="checkbox" id="checkAll" checked></th><th>ຊື່ແພັກເກັດ</th><th>ຕົ້ນທຶນ</th><th>ລາຄາຂາຍ</th></tr></thead><tbody>`;
+        if (packages.length === 0) { tableHTML += `<tr><td colspan="4" class="text-center">ບໍ່ພົບແພັກເກັດ.</td></tr>`; }
+        else {
+            packages.forEach(pkg => {
+                let costPrice = parseInt(pkg.cost_price);
+                let suggestedPrice = Math.ceil(costPrice * 1.15 / 1000) * 1000;
+                tableHTML += `<tr>
+                    <td><input type="checkbox" name="packages[${pkg.product_code}][import]" checked></td>
+                    <td><input type="hidden" name="packages[${pkg.product_code}][name]" value="${pkg.product_name}">${pkg.product_name}</td>
+                    <td><input type="hidden" name="packages[${pkg.product_code}][cost_price]" value="${costPrice}">${costPrice.toLocaleString()}</td>
+                    <td><input type="number" class="form-control" name="packages[${pkg.product_code}][selling_price]" value="${suggestedPrice}" required></td>
+                </tr>`;
+            });
+        }
+        tableHTML += `</tbody></table>`;
+        packagesContainer.innerHTML = tableHTML;
+        hiddenInputsContainer.innerHTML = `<input type="hidden" name="game_name" value="${gameName}"><input type="hidden" name="operator_code" value="${operatorCode}"><input type="hidden" name="supplier_id" value="${supplierSelect.value}">`;
+        document.getElementById('checkAll').addEventListener('change', e => document.querySelectorAll('input[name*="[import]"]').forEach(c => c.checked = e.target.checked));
+    }
+});
+</script>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
