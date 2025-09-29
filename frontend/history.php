@@ -1,12 +1,20 @@
 <?php
-// File: /frontend/history.php (Real-time Polling Version)
-require_once 'header.php'; 
+// File: /frontend/history.php (Updated to show UID on the main list)
+require_once 'header.php';
 
+// --- PHP Logic with Search ---
 $member_id = $_SESSION['member_id'];
 $search_term = isset($_GET['search']) ? trim($_GET['search']) : '';
 
-$sql = "SELECT o.id, o.order_code, o.created_at, o.game_user_info, o.amount, o.status,
-            g.name AS game_name, p.name AS package_name
+$sql = "SELECT 
+            o.id, 
+            o.order_code,
+            o.created_at, 
+            o.game_user_info, 
+            o.amount, 
+            o.status,
+            g.name AS game_name,
+            p.name AS package_name
         FROM orders AS o
         JOIN game_packages AS p ON o.package_id = p.id
         JOIN games AS g ON p.game_id = g.id
@@ -15,33 +23,104 @@ $sql = "SELECT o.id, o.order_code, o.created_at, o.game_user_info, o.amount, o.s
 if (!empty($search_term)) {
     $sql .= " AND (o.order_code LIKE ? OR g.name LIKE ?)";
 }
+
 $sql .= " ORDER BY o.created_at DESC";
 $stmt = $conn->prepare($sql);
+
 if (!empty($search_term)) {
     $search_param = "%{$search_term}%";
     $stmt->bind_param("iss", $member_id, $search_param, $search_param);
 } else {
     $stmt->bind_param("i", $member_id);
 }
+
 $stmt->execute();
 $history_result = $stmt->get_result();
 ?>
 
 <style>
-    /* ... CSS styles ຄືເກົ່າ ... */
-    .status-badge { transition: background-color 0.5s ease, color 0.5s ease; }
+    .history-item {
+        background-color: #fff;
+        border-radius: 10px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+        transition: all 0.2s ease-in-out;
+        margin-bottom: 1rem;
+    }
+    .history-item:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 16px rgba(0,0,0,0.08);
+    }
+    .status-badge { font-size: 0.9rem; padding: 0.5em 1em; }
+    
+    .receipt-modal .modal-header { border-bottom: none; }
+    .receipt-modal .status-header {
+        padding: 1.5rem;
+        border-radius: 5px;
+        color: white;
+        text-align: center;
+        margin: -1px; 
+    }
+    .receipt-modal .status-completed { background-color: #198754; }
+    .receipt-modal .status-pending { background-color: #ffc107; color: #000 !important; }
+    .receipt-modal .status-cancelled { background-color: #dc3545; }
+    .receipt-modal .status-processing { background-color: #0dcaf0; color: #000 !important; }
+    .receipt-modal .receipt-item {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.75rem 0;
+        border-bottom: 1px dashed #ccc;
+    }
+    .receipt-modal .receipt-item:last-child { border-bottom: none; }
+    .receipt-modal .receipt-item-label { color: #6c757d; }
 </style>
 
 <h1 class="mb-4 fw-bold">ປະຫວັດການສັ່ງຊື້</h1>
 
+<?php
+if (isset($_SESSION['success_message'])) {
+    echo '<div class="alert alert-success">' . $_SESSION['success_message'] . '</div>';
+    unset($_SESSION['success_message']);
+}
+?>
+
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <form method="GET" action="history.php">
+            <div class="input-group">
+                <input type="text" name="search" class="form-control" placeholder="ຄົ້ນຫາເລກອໍເດີ້ ຫຼື ຊື່ເກມ..." value="<?php echo htmlspecialchars($search_term); ?>">
+                <button class="btn btn-primary" type="submit"><i class="fas fa-search"></i> ຄົ້ນຫາ</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div class="history-list">
     <?php if ($history_result && $history_result->num_rows > 0): ?>
-        <?php while($order = $history_result->fetch_assoc()): ?>
-            <div class="history-item" data-order-id="<?php echo $order['id']; ?>" data-status="<?php echo $order['status']; ?>">
+        <?php while($order = $history_result->fetch_assoc()): 
+            // --- NEW LOGIC TO EXTRACT UID ---
+            $uid_display = '';
+            $user_info_array = json_decode($order['game_user_info'], true);
+            // Check if JSON is valid and 'uid' key exists. You can change 'uid' to other keys like 'id' or 'player_id' if needed.
+            if (json_last_error() === JSON_ERROR_NONE) {
+                foreach ($user_info_array as $key => $value) {
+                    // Find a key that looks like an ID
+                    if (stripos($key, 'id') !== false || stripos($key, 'uid') !== false) {
+                         $uid_display = htmlspecialchars($value);
+                         break; // Stop after finding the first ID-like key
+                    }
+                }
+            }
+        ?>
+            <div class="history-item">
                 <div class="d-flex align-items-center p-3">
                     <div class="flex-grow-1">
                         <h5 class="mb-1 fw-bold"><?php echo htmlspecialchars($order['game_name']); ?></h5>
                         <p class="mb-1 text-muted">ເລກອໍເດີ້: <?php echo htmlspecialchars($order['order_code']); ?></p>
+                        
+                        <?php if (!empty($uid_display)): ?>
+                            <p class="mb-1 text-muted">UID: <span class="fw-bold text-dark"><?php echo $uid_display; ?></span></p>
+                        <?php endif; ?>
+
                         <small class="text-muted"><?php echo date('d/m/Y, H:i', strtotime($order['created_at'])); ?></small>
                     </div>
                     <div class="text-end ms-3">
@@ -53,11 +132,11 @@ $history_result = $stmt->get_result();
                             elseif ($status == 'processing') $badge_class = 'bg-info text-dark';
                             elseif ($status == 'completed') $badge_class = 'bg-success';
                             elseif ($status == 'cancelled') $badge_class = 'bg-danger';
-                            // ເພີ່ມ ID ໃຫ້ກັບ Badge ເພື່ອໃຫ້ JavaScript ຊອກຫາໄດ້
-                            echo "<span id='status-badge-{$order['id']}' class='badge {$badge_class} status-badge'>" . htmlspecialchars(ucfirst($status)) . "</span>";
+                            echo "<span class='badge {$badge_class} status-badge'>" . htmlspecialchars(ucfirst($status)) . "</span>";
                         ?>
                         <div class="mt-2">
-                             <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#receiptModal" data-order='<?php echo json_encode($order, JSON_UNESCAPED_UNICODE); ?>'>
+                            <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#receiptModal"
+                                data-order='<?php echo json_encode($order, JSON_UNESCAPED_UNICODE); ?>'>
                                 <i class="fas fa-receipt"></i> ເບິ່ງໃບບິນ
                             </button>
                         </div>
@@ -72,70 +151,97 @@ $history_result = $stmt->get_result();
     <?php endif; ?>
 </div>
 
-</main>
+<div class="modal fade receipt-modal" id="receiptModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">ໃບບິນລາຍການສັ່ງຊື້</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-4">
+                <div id="modal-status-header">
+                    <h2 id="modal-status" class="mb-0"></h2>
+                </div>
+                <div class="mt-4">
+                    <div class="receipt-item">
+                        <span class="receipt-item-label">ເລກອ້າງອີງ:</span>
+                        <span id="modal-order-id" class="fw-bold"></span>
+                    </div>
+                    <div class="receipt-item">
+                        <span class="receipt-item-label">ວັນທີ-ເວລາ:</span>
+                        <span id="modal-date"></span>
+                    </div>
+                    <div class="receipt-item">
+                        <span class="receipt-item-label">ເກມ:</span>
+                        <span id="modal-game" class="fw-bold"></span>
+                    </div>
+                    <div class="receipt-item">
+                        <span class="receipt-item-label">ແພັກເກັດ:</span>
+                        <span id="modal-package"></span>
+                    </div>
+                    <div id="modal-user-info"></div>
+                    <div class="receipt-item">
+                        <span class="receipt-item-label fs-5">ລາຄາລວມ:</span>
+                        <span id="modal-price" class="fs-5 fw-bold text-primary"></span>
+                    </div>
+                </div>
+                <div class="text-center mt-4">
+                    <p class="text-muted mb-0">ຂໍຂອບໃຈທີ່ໃຊ້ບໍລິການ</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+</main> 
+
 <footer class="container mt-5 py-4 text-center text-muted border-top">
     <p>&copy; <?php echo date('Y'); ?> Topup Store</p>
 </footer>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
 <script>
-// ... ສ່ວນ JavaScript ຂອງ Modal ຄືເກົ່າ ...
-
-// --- START: REAL-TIME POLLING SCRIPT ---
 document.addEventListener('DOMContentLoaded', function () {
-    const checkInterval = 15000; // ກວດສອບທຸກໆ 15 ວິນາທີ (15000ms)
-
-    const checkOrderStatus = (orderItem) => {
-        const orderId = orderItem.dataset.orderId;
+    const receiptModal = document.getElementById('receiptModal');
+    receiptModal.addEventListener('show.bs.modal', function (event) {
+        const button = event.relatedTarget;
+        const orderData = JSON.parse(button.getAttribute('data-order'));
         
-        const formData = new FormData();
-        formData.append('order_id', orderId);
+        const statusHeader = receiptModal.querySelector('#modal-status-header');
+        const statusText = receiptModal.querySelector('#modal-status');
+        statusText.textContent = orderData.status.charAt(0).toUpperCase() + orderData.status.slice(1);
+        statusHeader.className = 'status-header status-' + orderData.status;
 
-        fetch('ajax_check_status.php', { method: 'POST', body: formData })
-        .then(response => response.json())
-        .then(result => {
-            if (result.success && result.status !== 'processing') {
-                // ເມື່ອສະຖານະປ່ຽນແປງ, ໃຫ້ອັບເດດໜ້າຕາເວັບ
-                updateOrderStatusOnPage(orderId, result.status);
-            }
-        }).catch(error => console.error('Polling Error:', error));
-    };
+        receiptModal.querySelector('#modal-order-id').textContent = orderData.order_code; 
+        
+        const date = new Date(orderData.created_at.replace(' ', 'T'));
+        receiptModal.querySelector('#modal-date').textContent = date.toLocaleString('lo-LA');
+        receiptModal.querySelector('#modal-game').textContent = orderData.game_name;
+        receiptModal.querySelector('#modal-package').textContent = orderData.package_name;
+        receiptModal.querySelector('#modal-price').textContent = parseFloat(orderData.amount).toLocaleString('en-US') + ' ກີບ';
 
-    const updateOrderStatusOnPage = (orderId, newStatus) => {
-        const orderItem = document.querySelector(`.history-item[data-order-id='${orderId}']`);
-        if (orderItem) {
-            orderItem.dataset.status = newStatus; // ອັບເດດ status ຂອງ element
-            const statusBadge = document.getElementById(`status-badge-${orderId}`);
-            
-            statusBadge.textContent = newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
-            
-            // ປ່ຽນສີຂອງ Badge
-            statusBadge.className = 'badge status-badge'; // Reset classes
-            if (newStatus === 'completed') {
-                statusBadge.classList.add('bg-success');
-            } else if (newStatus === 'cancelled') {
-                statusBadge.classList.add('bg-danger');
+        const userInfoContainer = receiptModal.querySelector('#modal-user-info');
+        userInfoContainer.innerHTML = '';
+        if (orderData.game_user_info) {
+            try {
+                const userInfo = JSON.parse(orderData.game_user_info);
+                for (const key in userInfo) {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'receipt-item';
+                    itemDiv.innerHTML = `<span class="receipt-item-label">${key.charAt(0).toUpperCase() + key.slice(1)}:</span><span>${userInfo[key]}</span>`;
+                    userInfoContainer.appendChild(itemDiv);
+                }
+            } catch (e) {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'receipt-item';
+                itemDiv.innerHTML = `<span class="receipt-item-label">Info:</span><span>${orderData.game_user_info}</span>`;
+                userInfoContainer.appendChild(itemDiv);
             }
         }
-    };
-    
-    const findAndCheckProcessingOrders = () => {
-        // ຊອກຫາສະເພາະອໍເດີ້ທີ່ຍັງເປັນ "processing"
-        const processingItems = document.querySelectorAll(".history-item[data-status='processing']");
-        if (processingItems.length > 0) {
-            console.log(`Found ${processingItems.length} processing orders. Checking now...`);
-            processingItems.forEach(item => {
-                checkOrderStatus(item);
-            });
-        }
-    };
-
-    // ເລີ່ມການກວດສອບຄັ້ງທຳອິດຫຼັງຈາກໂຫຼດໜ້າเว็บ 5 ວິນາທີ
-    setTimeout(findAndCheckProcessingOrders, 5000);
-    
-    // ຕັ້ງຄ່າໃຫ້ກວດສອບອັດຕະໂນມັດທຸກໆໄລຍະເວລາທີ່ກຳນົດ
-    setInterval(findAndCheckProcessingOrders, checkInterval);
+    });
 });
-// --- END: REAL-TIME POLLING SCRIPT ---
 </script>
+
 </body>
 </html>
