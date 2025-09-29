@@ -21,7 +21,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $_SESSION['member_loggedin'] = true;
             $_SESSION['member_id'] = $id;
             $_SESSION['member_username'] = $user;
-            header("location: frontend/index.php");
+            header("location:index.php");
             exit();
         } else {
             $_SESSION['error'] = "ຊື່ຜູ້ໃຊ້ ຫຼື ລະຫັດຜ່ານບໍ່ຖືກຕ້ອງ!";

@@ -70,11 +70,7 @@ require_once 'auth_check.php';
                 </a>
             </li>
 
-            <li>
-                <a href="manage_games.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'manage_games.php' ? 'active' : ''; ?>">
-                    <i class="fas fa-cogs me-2"></i> ຈັດການເກມ & ແພັກເກັດ
-                </a>
-            </li>
+            
         </ul>
         <hr>
         <div class="dropdown">
