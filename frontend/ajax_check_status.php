@@ -14,8 +14,9 @@ if (!isset($_SESSION['member_loggedin']) || !isset($_POST['order_id'])) {
 $member_id = $_SESSION['member_id'];
 $order_id = (int)$_POST['order_id'];
 
-// ດຶງຂໍ້ມູນທີ່ຈຳເປັນຈາກຖານຂໍ້ມູນ
-$sql = "SELECT o.id, o.order_code, o.amount, o.status, s.*
+// ດຶງຂໍ້ມູນທີ່ຈຳເປັນຈາກຖານຂໍ້ມູນ, ພ້ອມກວດສອບວ່າອໍເດີ้นี้เป็นของผู้ใช้ที่ล็อกอินอยู่จริง
+$sql = "SELECT o.id, o.order_code, o.amount, o.status, 
+               s.api_base_url, s.member_code, s.api_secret_key
         FROM orders o
         JOIN game_packages p ON o.package_id = p.id
         JOIN games g ON p.game_id = g.id
@@ -32,6 +33,7 @@ if ($result->num_rows === 0) {
 }
 $order = $result->fetch_assoc();
 
+// ຖ້າສະຖານະບໍ່ແມ່ນ 'processing', ບໍ່ຈຳເປັນຕ້ອງກວດສອບອີກ
 if ($order['status'] !== 'processing') {
     echo json_encode(['success' => true, 'status' => $order['status'], 'message' => 'Status is already final.']);
     exit;
@@ -67,10 +69,11 @@ if ($status_result['success'] && isset($status_result['data']['status'])) {
             echo json_encode(['success' => false, 'message' => 'Refund failed: ' . $e->getMessage()]);
         }
     } else {
+        // ຖ້າສະຖານະຍັງເປັນ pending, ບໍ່ຕ້ອງເຮັດຫຍັງ
         echo json_encode(['success' => true, 'status' => 'processing', 'message' => 'Order is still being processed.']);
     }
 } else {
-    echo json_encode(['success' => false, 'message' => $status_result['message'] ?? 'Failed to get status.']);
+    echo json_encode(['success' => false, 'message' => $status_result['message'] ?? 'Failed to get status from API.']);
 }
 $conn->close();
 ?>

@@ -3,7 +3,7 @@
 require_once 'db_connect.php';
 
 // --- ຕັ້ງຄ່າ ---
-$target_username = 'pao';
+$target_username = 'admin';
 $new_password = '123'; // ຕັ້ງລະຫັດຜ່ານໃໝ່ທີ່ຕ້ອງການຢູ່ນີ້
 
 // ---  процессинг ---

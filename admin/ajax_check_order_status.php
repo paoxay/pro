@@ -1,5 +1,5 @@
 <?php
-// File: admin/ajax_check_order_status.php (Final Logic Correction)
+// File: admin/ajax_check_order_status.php (Logic adapted from user's working script)
 require_once 'db_connect.php';
 require_once 'auth_check.php';
 header('Content-Type: application/json');
@@ -17,9 +17,7 @@ try {
     $stmt->bind_param("i", $order_id);
     $stmt->execute();
     $result = $stmt->get_result();
-    if ($result->num_rows === 0) {
-        throw new Exception("Order or Supplier details not found.");
-    }
+    if ($result->num_rows === 0) { throw new Exception("Order or Supplier details not found."); }
     $data = $result->fetch_assoc();
     $stmt->close();
 
@@ -29,6 +27,7 @@ try {
     $member_code = $data['member_code'];
     $secret_key = $data['api_secret_key'];
     
+    // Using the exact proven logic from user's script
     $stringToHash = $member_code . ":" . $secret_key . ":" . $ref_id;
     $signature = md5($stringToHash);
     $api_url = rtrim($data['api_base_url'], '/') . '/v1/transaksi/status';
@@ -42,39 +41,29 @@ try {
     $api_response = json_decode($response_body, true);
     curl_close($ch);
 
-    // /// --- START: FINAL CORRECTED LOGIC --- ///
-    if (isset($api_response['status'])) {
-        $api_status_string = strtolower($api_response['status']);
+    $api_status_string = null;
+    if (isset($api_response['status'])) { $api_status_string = strtolower($api_response['status']); } 
+    elseif (isset($api_response['data']['status'])) { $api_status_string = strtolower($api_response['data']['status']); }
 
+    if ($api_status_string !== null) {
         $new_status_in_db = 'processing';
-        if ($api_status_string == 'sukses') {
-            $new_status_in_db = 'completed';
-        } elseif ($api_status_string == 'gagal') {
-            $new_status_in_db = 'cancelled';
-        }
+        if ($api_status_string == 'sukses') $new_status_in_db = 'completed';
+        elseif ($api_status_string == 'gagal') $new_status_in_db = 'cancelled';
 
-        $sn = $api_response['sn'] ?? null;
-        $message = $api_response['message'] ?? 'Status updated from API';
+        $sn = $api_response['sn'] ?? ($api_response['data']['sn'] ?? null);
+        $message = $api_response['message'] ?? ($api_response['data']['message'] ?? 'Status updated');
 
         $stmt_update = $conn->prepare("UPDATE orders SET status = ?, api_sn = ?, api_response_message = ? WHERE id = ?");
         $stmt_update->bind_param("sssi", $new_status_in_db, $sn, $message, $order_id);
         $stmt_update->execute();
         $stmt_update->close();
 
-        echo json_encode([
-            'success' => true, 
-            'message' => 'Status updated successfully!',
-            'new_status' => $new_status_in_db,
-            'sn' => $sn
-        ]);
+        echo json_encode(['success' => true, 'message' => 'Status updated successfully!', 'new_status' => $new_status_in_db, 'sn' => $sn]);
     } else {
-        throw new Exception($api_response['message'] ?? 'Failed to get a valid status from API.');
+        throw new Exception($api_response['message'] ?? 'Could not determine status from API response.');
     }
-    // /// --- END: FINAL CORRECTED LOGIC --- ///
-
 } catch (Exception $e) {
     echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }
-
 $conn->close();
 ?>

@@ -1,8 +1,9 @@
 <?php
-// File: /frontend/topup.php (AJAX Version)
+// File: /frontend/topup.php (Final AJAX Version)
 require_once 'header.php';
 
 // --- PHP Data Fetching ONLY ---
+// ສ່ວນນີ້ເຮັດໜ້າທີ່ດຶງຂໍ້ມູນຈາກຖານຂໍ້ມູນມາສະແດງເທົ່ານັ້ນ
 $game_id = isset($_GET['game_id']) ? (int)$_GET['game_id'] : 0;
 if ($game_id <= 0) {
     echo "<main class='container mt-4'><div class='alert alert-danger'>ບໍ່ພົບ ID ເກມທີ່ລະບຸ.</div></main>";
@@ -31,16 +32,36 @@ $stmt_packages->execute();
 $packages_result = $stmt_packages->get_result();
 ?>
 
-<style> body { background: linear-gradient(to top, #f3f5f7, #ffffff); } .topup-container { max-width: 800px; margin: auto; } .game-title-card { background: white; border-radius: 12px; padding: 2rem; box-shadow: 0 4px 6px rgba(0,0,0,0.04); margin-bottom: 2rem; } .game-title-card h1 { font-weight: 700; color: #2c3e50; } .game-description { color: #555; line-height: 1.8; } .game-description img { max-width: 100%; height: auto; border-radius: 5px; } .step-heading { font-weight: 700; color: #34495e; margin-bottom: 1.5rem; } .package-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1rem; } .package-item { cursor: pointer; border: 2px solid #e0e0e0; border-radius: 10px; transition: all 0.25s ease-in-out; position: relative; background: #fff; padding: 1rem; } .package-item:hover { transform: translateY(-5px); box-shadow: 0 12px 24px rgba(0,0,0,0.08); border-color: #74b9ff; } .package-item.selected { border-color: #0984e3; background-color: #dfefff; box-shadow: 0 8px 16px rgba(9,132,227,0.2); } .package-item.selected::after { content: '✔'; position: absolute; top: 8px; right: 12px; color: #0984e3; font-size: 1.4rem; font-weight: bold; } .package-name { font-weight: 500; font-size: 0.95rem; color: #34495e; } .package-price { font-weight: 700; font-size: 1.1rem; color: #d35400; } .form-control-lg:focus, .form-select-lg:focus { border-color: #0984e3; box-shadow: 0 0 0 0.25rem rgba(9,132,227,0.25); } </style>
+<style>
+    /* CSS Styles can remain the same as your original file */
+    body { background: linear-gradient(to top, #f3f5f7, #ffffff); } 
+    .topup-container { max-width: 800px; margin: auto; } 
+    .game-title-card { background: white; border-radius: 12px; padding: 2rem; box-shadow: 0 4px 6px rgba(0,0,0,0.04); margin-bottom: 2rem; } 
+    .game-title-card h1 { font-weight: 700; color: #2c3e50; } 
+    .game-description { color: #555; line-height: 1.8; } 
+    .game-description img { max-width: 100%; height: auto; border-radius: 5px; } 
+    .step-heading { font-weight: 700; color: #34495e; margin-bottom: 1.5rem; } 
+    .package-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1rem; } 
+    .package-item { cursor: pointer; border: 2px solid #e0e0e0; border-radius: 10px; transition: all 0.25s ease-in-out; position: relative; background: #fff; padding: 1rem; } 
+    .package-item:hover { transform: translateY(-5px); box-shadow: 0 12px 24px rgba(0,0,0,0.08); border-color: #74b9ff; } 
+    .package-item.selected { border-color: #0984e3; background-color: #dfefff; box-shadow: 0 8px 16px rgba(9,132,227,0.2); } 
+    .package-item.selected::after { content: '✔'; position: absolute; top: 8px; right: 12px; color: #0984e3; font-size: 1.4rem; font-weight: bold; } 
+    .package-name { font-weight: 500; font-size: 0.95rem; color: #34495e; } 
+    .package-price { font-weight: 700; font-size: 1.1rem; color: #d35400; } 
+    .form-control-lg:focus, .form-select-lg:focus { border-color: #0984e3; box-shadow: 0 0 0 0.25rem rgba(9,132,227,0.25); }
+</style>
+
 <div class="topup-container py-4">
     <div class="game-title-card text-center">
         <h1 class="display-5"><?php echo htmlspecialchars($game['name']); ?></h1>
         <hr class="w-50 mx-auto my-3">
         <div class="game-description text-start"><?php echo $game['description']; ?></div>
     </div>
+    
     <div class="card shadow-sm">
         <div class="card-body p-4 p-lg-5">
-            <div id="errorMessageContainer"></div> <form id="topupForm">
+            <div id="errorMessageContainer"></div> 
+            <form id="topupForm">
                 <h4 class="step-heading">1. ປ້ອນຂໍ້ມູນບັນຊີເກມ</h4>
                 <div id="dynamic-fields" class="mb-4">
                     <div class="row g-3">
@@ -61,6 +82,7 @@ $packages_result = $stmt_packages->get_result();
                         <?php endwhile; ?>
                     </div>
                 </div>
+
                 <h4 class="step-heading">2. ເລືອກແພັກເກັດ</h4>
                 <div class="package-grid mb-4">
                     <?php mysqli_data_seek($packages_result, 0); while($pkg = $packages_result->fetch_assoc()): ?>
@@ -70,7 +92,7 @@ $packages_result = $stmt_packages->get_result();
                         </div>
                     <?php endwhile; ?>
                 </div>
-                <input type="hidden" name="package_id" id="selectedPackageId" value="">
+                
                 <div class="d-grid mt-4">
                     <button type="button" id="mainOrderBtn" class="btn btn-primary btn-lg fw-bold py-3"><i class="fas fa-shopping-cart me-2"></i> ສັ່ງຊື້</button>
                 </div>
@@ -78,21 +100,39 @@ $packages_result = $stmt_packages->get_result();
         </div>
     </div>
 </div>
+
 <div class="modal fade" id="confirmationModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">ກະລຸນາກວດສອບລາຍການ</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div id="modal-summary"></div><hr><p class="fs-5 fw-bold mb-0">ລາຄາສຸດທ້າຍ: <span id="modal-final-price" class="text-danger"></span></p></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ຍົກເລີກ</button><button type="button" id="confirmOrderBtn" class="btn btn-primary">ຢືນຢັນການສັ່ງຊື້</button></div></div></div>
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">ກະລຸນາກວດສອບລາຍການ</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="modal-summary"></div>
+                <hr>
+                <p class="fs-5 fw-bold mb-0">ລາຄາສຸດທ້າຍ: <span id="modal-final-price" class="text-danger"></span></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ຍົກເລີກ</button>
+                <button type="button" id="confirmOrderBtn" class="btn btn-primary">ຢືນຢັນການສັ່ງຊື້</button>
+            </div>
+        </div>
+    </div>
 </div>
+
 </main> 
-<footer class="container mt-5 py-4 text-center text-muted"><p>&copy; <?php echo date('Y'); ?> Topup Store</p></footer>
+<footer class="container mt-5 py-4 text-center text-muted">
+    <p>&copy; <?php echo date('Y'); ?> Topup Store</p>
+</footer>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
-// /// --- START: MODIFIED JAVASCRIPT --- ///
 document.addEventListener('DOMContentLoaded', function() {
     const packageItems = document.querySelectorAll('.package-item');
     const mainOrderBtn = document.getElementById('mainOrderBtn');
     const confirmOrderBtn = document.getElementById('confirmOrderBtn');
     const confirmationModal = new bootstrap.Modal(document.getElementById('confirmationModal'));
-    const errorMessageContainer = document.getElementById('errorMessageContainer');
     let selectedPackage = null;
     let customFields = {};
 
@@ -113,7 +153,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 allFieldsValid = false;
                 field.classList.add('is-invalid');
             }
-            // Extract field name like 'user_id' from 'fields[user_id]'
             const name = field.name.match(/\[(.*?)\]/)[1];
             customFields[name] = field.value;
         });
@@ -131,21 +170,22 @@ document.addEventListener('DOMContentLoaded', function() {
         summaryHTML += `<p class="mb-2"><strong>ແພັກເກັດ:</strong> ${selectedPackage.name}</p>`;
         
         for (const key in customFields) {
-            const label = document.querySelector(`[name="fields[${key}]"]`).closest('.col').querySelector('.form-label').textContent;
-            summaryHTML += `<p class="mb-2"><strong>${label}</strong> ${customFields[key]}</p>`;
+            const labelEl = document.querySelector(`[name="fields[${key}]"]`);
+            if (labelEl) {
+                const label = labelEl.closest('.col').querySelector('.form-label').textContent;
+                summaryHTML += `<p class="mb-2"><strong>${label}</strong> ${customFields[key]}</p>`;
+            }
         }
         
         document.getElementById('modal-summary').innerHTML = summaryHTML;
-        document.getElementById('modal-final-price').textContent = selectedPackage.price.toLocaleString('en-US') + ' ກີບ';
+        document.getElementById('modal-final-price').textContent = selectedPackage.price.toLocaleString('lo-LA') + ' ກີບ';
         
         confirmationModal.show();
     });
 
-    // This is the new logic for handling the final confirmation
     confirmOrderBtn.addEventListener('click', function() {
         this.disabled = true;
         this.innerHTML = `<span class="spinner-border spinner-border-sm"></span> ກຳລັງດຳເນີນການ...`;
-        errorMessageContainer.innerHTML = '';
 
         const orderData = {
             game_id: <?php echo $game_id; ?>,
@@ -162,13 +202,10 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(result => {
             confirmationModal.hide();
             if (result.success) {
-                // Show the success message as requested
                 alert("ທ່ານໄດ້ສັ່ງຊື້ສຳເລັດ, ກະລຸນາກວດສອບໃນປະຫວັດ.");
-                // Redirect to the home page after the user clicks OK
-                window.location.href = 'index.php';
+                window.location.href = 'history.php'; // ໄປທີ່ໜ້າ history ເພື່ອເບິ່ງสถานะ
             } else {
-                // Show the error message in an alert
-                alert("Error: " + result.message);
+                alert("ເກີດຂໍ້ຜິດພາດ: " + result.message);
             }
         })
         .catch(error => {
@@ -177,13 +214,11 @@ document.addEventListener('DOMContentLoaded', function() {
             alert('ເກີດຂໍ້ຜິດພາດໃນການເຊື່ອມຕໍ່, ກະລຸນາລອງໃໝ່.');
         })
         .finally(() => {
-            // Re-enable the button
             this.disabled = false;
             this.innerHTML = 'ຢືນຢັນການສັ່ງຊື້';
         });
     });
 });
-// /// --- END: MODIFIED JAVASCRIPT --- ///
 </script>
 
 </body>
