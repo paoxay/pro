@@ -1,5 +1,5 @@
 <?php
-// File: /frontend/topup.php (Final version, respecting original AJAX structure)
+// File: /frontend/topup.php (FINAL COMPLETE VERSION)
 require_once 'header.php';
 
 // --- PHP Data Fetching ONLY ---
@@ -25,14 +25,14 @@ $stmt_fields->bind_param("i", $game_id);
 $stmt_fields->execute();
 $fields_result = $stmt_fields->get_result();
 
-$stmt_packages = $conn->prepare("SELECT * FROM game_packages WHERE game_id = ? ORDER BY display_order ASC, price ASC");
+// This query now correctly filters for active packages and respects the custom order
+$stmt_packages = $conn->prepare("SELECT * FROM game_packages WHERE game_id = ? AND status = 'active' ORDER BY display_order ASC, price ASC");
 $stmt_packages->bind_param("i", $game_id);
 $stmt_packages->execute();
 $packages_result = $stmt_packages->get_result();
 ?>
 
 <style>
-    /* CSS Styles can remain the same as your original file */
     body { background: linear-gradient(to top, #f3f5f7, #ffffff); } 
     .topup-container { max-width: 800px; margin: auto; } 
     .game-title-card { background: white; border-radius: 12px; padding: 2rem; box-shadow: 0 4px 6px rgba(0,0,0,0.04); margin-bottom: 2rem; } 
@@ -60,7 +60,7 @@ $packages_result = $stmt_packages->get_result();
     <div class="card shadow-sm">
         <div class="card-body p-4 p-lg-5">
             <div id="errorMessageContainer"></div> 
-            <form id="topupForm">
+            <form id="topupForm" onsubmit="return false;">
                 <h4 class="step-heading">1. ປ້ອນຂໍ້ມູນບັນຊີເກມ</h4>
                 <div id="dynamic-fields" class="mb-4">
                     <div class="row g-3">
@@ -74,13 +74,11 @@ $packages_result = $stmt_packages->get_result();
                                 <select class="form-select form-select-lg" name="fields[<?php echo htmlspecialchars($field['field_name']); ?>]" required>
                                     <option value="" disabled selected><?php echo htmlspecialchars($field['placeholder'] ?: 'ກະລຸນາເລືອກ...'); ?></option>
                                     <?php 
-                                    // Check if JSON decoding was successful
                                     if (is_array($options_json)) {
                                         foreach ($options_json as $option): ?>
                                             <option value="<?php echo htmlspecialchars($option['value']); ?>"><?php echo htmlspecialchars($option['text']); ?></option>
                                         <?php endforeach;
                                     } else {
-                                        // Fallback for old comma-separated format
                                         $options_old = explode(',', $field['field_options']);
                                         foreach ($options_old as $option): $opt = trim($option); ?>
                                             <option value="<?php echo htmlspecialchars($opt); ?>"><?php echo htmlspecialchars($opt); ?></option>
@@ -88,10 +86,10 @@ $packages_result = $stmt_packages->get_result();
                                     }
                                     ?>
                                 </select>
-                            <?php else: // For text and number inputs (no change) ?>
+                            <?php else: ?>
                                 <input type="<?php echo $field['field_type']; ?>" class="form-control form-control-lg" name="fields[<?php echo htmlspecialchars($field['field_name']); ?>]" placeholder="<?php echo htmlspecialchars($field['placeholder']); ?>" required>
                             <?php endif; ?>
-                            </div>
+                        </div>
                         <?php endwhile; ?>
                     </div>
                 </div>
@@ -141,7 +139,6 @@ $packages_result = $stmt_packages->get_result();
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
-// Your original JavaScript for AJAX submission. No changes were made here.
 document.addEventListener('DOMContentLoaded', function() {
     const packageItems = document.querySelectorAll('.package-item');
     const mainOrderBtn = document.getElementById('mainOrderBtn');
@@ -187,7 +184,6 @@ document.addEventListener('DOMContentLoaded', function() {
              const labelEl = field.closest('.col').querySelector('.form-label');
              if(labelEl) {
                  const labelText = labelEl.textContent;
-                 // For select, we want the displayed text, not the value
                  const valueText = (field.tagName === 'SELECT') 
                                  ? field.options[field.selectedIndex].text 
                                  : field.value;
@@ -220,7 +216,6 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(result => {
             confirmationModal.hide();
             if (result.success) {
-                // Using a more user-friendly confirmation before redirecting
                 const successAlert = document.createElement('div');
                 successAlert.className = 'alert alert-success';
                 successAlert.innerHTML = `<strong>ສັ່ງຊື້ສຳເລັດ!</strong> ລະຫັດອໍເດີ້: <strong>${result.order_code}</strong>. ກำลังพาไปที่หน้าประวัติ...`;
@@ -233,7 +228,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const errorAlert = document.createElement('div');
                 errorAlert.className = 'alert alert-danger';
                 errorAlert.textContent = "ເກີດຂໍ້ຜິດພາດ: " + result.message;
-                document.getElementById('errorMessageContainer').innerHTML = ''; // Clear previous messages
+                document.getElementById('errorMessageContainer').innerHTML = '';
                 document.getElementById('errorMessageContainer').appendChild(errorAlert);
             }
         })
