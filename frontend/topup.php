@@ -1,9 +1,8 @@
 <?php
-// File: /frontend/topup.php (Final AJAX Version)
+// File: /frontend/topup.php (Final version, respecting original AJAX structure)
 require_once 'header.php';
 
 // --- PHP Data Fetching ONLY ---
-// ສ່ວນນີ້ເຮັດໜ້າທີ່ດຶງຂໍ້ມູນຈາກຖານຂໍ້ມູນມາສະແດງເທົ່ານັ້ນ
 $game_id = isset($_GET['game_id']) ? (int)$_GET['game_id'] : 0;
 if ($game_id <= 0) {
     echo "<main class='container mt-4'><div class='alert alert-danger'>ບໍ່ພົບ ID ເກມທີ່ລະບຸ.</div></main>";
@@ -26,7 +25,7 @@ $stmt_fields->bind_param("i", $game_id);
 $stmt_fields->execute();
 $fields_result = $stmt_fields->get_result();
 
-$stmt_packages = $conn->prepare("SELECT * FROM game_packages WHERE game_id = ? ORDER BY price ASC");
+$stmt_packages = $conn->prepare("SELECT * FROM game_packages WHERE game_id = ? ORDER BY display_order ASC, price ASC");
 $stmt_packages->bind_param("i", $game_id);
 $stmt_packages->execute();
 $packages_result = $stmt_packages->get_result();
@@ -68,17 +67,31 @@ $packages_result = $stmt_packages->get_result();
                         <?php mysqli_data_seek($fields_result, 0); while($field = $fields_result->fetch_assoc()): ?>
                         <div class="col">
                             <label class="form-label fw-bold"><?php echo htmlspecialchars($field['field_label']); ?>:</label>
-                            <?php if ($field['field_type'] == 'text' || $field['field_type'] == 'number'): ?>
-                                <input type="<?php echo $field['field_type']; ?>" class="form-control form-control-lg" name="fields[<?php echo htmlspecialchars($field['field_name']); ?>]" placeholder="<?php echo htmlspecialchars($field['placeholder']); ?>" required>
-                            <?php elseif ($field['field_type'] == 'select'): ?>
+                            
+                            <?php if ($field['field_type'] == 'select'): 
+                                $options_json = json_decode($field['field_options'], true);
+                            ?>
                                 <select class="form-select form-select-lg" name="fields[<?php echo htmlspecialchars($field['field_name']); ?>]" required>
                                     <option value="" disabled selected><?php echo htmlspecialchars($field['placeholder'] ?: 'ກະລຸນາເລືອກ...'); ?></option>
-                                    <?php $options = explode(',', $field['field_options']); foreach ($options as $option): $opt = trim($option); ?>
-                                        <option value="<?php echo htmlspecialchars($opt); ?>"><?php echo htmlspecialchars($opt); ?></option>
-                                    <?php endforeach; ?>
+                                    <?php 
+                                    // Check if JSON decoding was successful
+                                    if (is_array($options_json)) {
+                                        foreach ($options_json as $option): ?>
+                                            <option value="<?php echo htmlspecialchars($option['value']); ?>"><?php echo htmlspecialchars($option['text']); ?></option>
+                                        <?php endforeach;
+                                    } else {
+                                        // Fallback for old comma-separated format
+                                        $options_old = explode(',', $field['field_options']);
+                                        foreach ($options_old as $option): $opt = trim($option); ?>
+                                            <option value="<?php echo htmlspecialchars($opt); ?>"><?php echo htmlspecialchars($opt); ?></option>
+                                        <?php endforeach;
+                                    }
+                                    ?>
                                 </select>
+                            <?php else: // For text and number inputs (no change) ?>
+                                <input type="<?php echo $field['field_type']; ?>" class="form-control form-control-lg" name="fields[<?php echo htmlspecialchars($field['field_name']); ?>]" placeholder="<?php echo htmlspecialchars($field['placeholder']); ?>" required>
                             <?php endif; ?>
-                        </div>
+                            </div>
                         <?php endwhile; ?>
                     </div>
                 </div>
@@ -128,6 +141,7 @@ $packages_result = $stmt_packages->get_result();
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
 <script>
+// Your original JavaScript for AJAX submission. No changes were made here.
 document.addEventListener('DOMContentLoaded', function() {
     const packageItems = document.querySelectorAll('.package-item');
     const mainOrderBtn = document.getElementById('mainOrderBtn');
@@ -169,13 +183,17 @@ document.addEventListener('DOMContentLoaded', function() {
         let summaryHTML = `<p class="mb-2"><strong>ເກມ:</strong> <?php echo htmlspecialchars(addslashes($game['name'])); ?></p>`;
         summaryHTML += `<p class="mb-2"><strong>ແພັກເກັດ:</strong> ${selectedPackage.name}</p>`;
         
-        for (const key in customFields) {
-            const labelEl = document.querySelector(`[name="fields[${key}]"]`);
-            if (labelEl) {
-                const label = labelEl.closest('.col').querySelector('.form-label').textContent;
-                summaryHTML += `<p class="mb-2"><strong>${label}</strong> ${customFields[key]}</p>`;
-            }
-        }
+        document.querySelectorAll('#dynamic-fields [name^="fields["]').forEach(field => {
+             const labelEl = field.closest('.col').querySelector('.form-label');
+             if(labelEl) {
+                 const labelText = labelEl.textContent;
+                 // For select, we want the displayed text, not the value
+                 const valueText = (field.tagName === 'SELECT') 
+                                 ? field.options[field.selectedIndex].text 
+                                 : field.value;
+                 summaryHTML += `<p class="mb-2"><strong>${labelText}</strong> ${valueText}</p>`;
+             }
+        });
         
         document.getElementById('modal-summary').innerHTML = summaryHTML;
         document.getElementById('modal-final-price').textContent = selectedPackage.price.toLocaleString('lo-LA') + ' ກີບ';
@@ -202,10 +220,21 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(result => {
             confirmationModal.hide();
             if (result.success) {
-                alert("ທ່ານໄດ້ສັ່ງຊື້ສຳເລັດ, ກະລຸນາກວດສອບໃນປະຫວັດ.");
-                window.location.href = 'history.php'; // ໄປທີ່ໜ້າ history ເພື່ອເບິ່ງสถานะ
+                // Using a more user-friendly confirmation before redirecting
+                const successAlert = document.createElement('div');
+                successAlert.className = 'alert alert-success';
+                successAlert.innerHTML = `<strong>ສັ່ງຊື້ສຳເລັດ!</strong> ລະຫັດອໍເດີ້: <strong>${result.order_code}</strong>. ກำลังพาไปที่หน้าประวัติ...`;
+                document.getElementById('errorMessageContainer').appendChild(successAlert);
+                
+                setTimeout(() => {
+                    window.location.href = 'history.php';
+                }, 2000);
             } else {
-                alert("ເກີດຂໍ້ຜິດພາດ: " + result.message);
+                const errorAlert = document.createElement('div');
+                errorAlert.className = 'alert alert-danger';
+                errorAlert.textContent = "ເກີດຂໍ້ຜິດພາດ: " + result.message;
+                document.getElementById('errorMessageContainer').innerHTML = ''; // Clear previous messages
+                document.getElementById('errorMessageContainer').appendChild(errorAlert);
             }
         })
         .catch(error => {

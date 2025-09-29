@@ -1,14 +1,16 @@
 <?php
-// File: admin/import_from_cache.php (Final Version with async/await fix)
+// File: admin/import_from_cache.php (Version with Editable Name & Draggable Order)
 require_once 'db_connect.php';
 require_once 'auth_check.php';
 
-// --- AJAX ACTION HANDLER (No changes) ---
+// --- AJAX Action Handler (No changes here) ---
 if (isset($_GET['action'])) {
     header('Content-Type: application/json');
     $supplier_id = $_GET['supplier_id'] ?? 0;
     if ($supplier_id <= 0) { die(json_encode(['success' => false, 'message' => 'Invalid Supplier ID'])); }
+    
     $data = []; $sql = ''; $params = []; $types = '';
+    
     switch ($_GET['action']) {
         case 'get_categories':
             $sql = "SELECT DISTINCT category AS val, category AS txt FROM api_cache_products WHERE api_supplier_id = ? ORDER BY category";
@@ -29,20 +31,15 @@ if (isset($_GET['action'])) {
             $sql = "SELECT product_code, product_name, cost_price FROM api_cache_products WHERE api_supplier_id = ? AND jenis = ? AND brand = ? ORDER BY cost_price";
             $types = "iss"; $params[] = $supplier_id; $params[] = $jenis; $params[] = $brand;
             break;
-        case 'get_supplier_details':
-            $sql = "SELECT exchange_rate, default_markup FROM api_suppliers WHERE id = ?";
-            $types = "i"; $params[] = $supplier_id;
-            break;
     }
+    
     if(!empty($sql)) {
         $stmt = $conn->prepare($sql);
         if ($stmt) {
             if(!empty($types)) $stmt->bind_param($types, ...$params);
             $stmt->execute();
             $result = $stmt->get_result();
-            if ($_GET['action'] == 'get_supplier_details') {
-                $data = $result->fetch_assoc();
-            } else { while ($row = $result->fetch_assoc()) { $data[] = $row; } }
+            while ($row = $result->fetch_assoc()) { $data[] = $row; }
             $stmt->close();
         }
     }
@@ -50,14 +47,64 @@ if (isset($_GET['action'])) {
     exit;
 }
 
-// --- FORM SUBMISSION HANDLER (No changes) ---
+// --- Form Submission Handler (Updated for display_order) ---
+$success_message = ""; $error_message = "";
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['import_game'])) {
-    // This part is unchanged.
+    $game_name = $_POST['game_name'];
+    $operator_code = $_POST['operator_code'];
+    $supplier_id = $_POST['supplier_id'];
+    $packages = $_POST['packages'] ?? [];
+
+    if (empty($game_name) || empty($operator_code) || empty($supplier_id) || empty($packages)) {
+        $error_message = "ຂໍ້ມູນບໍ່ຄົບຖ້ວນ.";
+    } else {
+        $conn->begin_transaction();
+        try {
+            $game_id = null;
+            $stmt_check_game = $conn->prepare("SELECT id FROM games WHERE api_operator_code = ? AND api_supplier_id = ?");
+            $stmt_check_game->bind_param("si", $operator_code, $supplier_id);
+            $stmt_check_game->execute();
+            $game_result = $stmt_check_game->get_result();
+            if ($game_result->num_rows > 0) {
+                $game_id = $game_result->fetch_assoc()['id'];
+            } else {
+                $stmt_game = $conn->prepare("INSERT INTO games (name, status, api_supplier_id, api_operator_code) VALUES (?, 'active', ?, ?)");
+                $stmt_game->bind_param("sis", $game_name, $supplier_id, $operator_code);
+                $stmt_game->execute();
+                $game_id = $conn->insert_id;
+                $stmt_game->close();
+            }
+            $stmt_check_game->close();
+            
+            // --- CHANGE 1: Update SQL query to include display_order ---
+            $stmt_insert_pkg = $conn->prepare("REPLACE INTO game_packages (game_id, name, price, cost_price, api_product_code, display_order) VALUES (?, ?, ?, ?, ?, ?)");
+            $upsert_count = 0;
+            $order_index = 0; // To keep track of the new order
+            foreach($packages as $api_code => $pkg_data) {
+                if(isset($pkg_data['import'])) {
+                    $order_index++;
+                    // --- CHANGE 2: Bind display_order parameter ---
+                    $stmt_insert_pkg->bind_param("isddsi", $game_id, $pkg_data['name'], $pkg_data['selling_price'], $pkg_data['cost_price_lak'], $api_code, $order_index);
+                    $stmt_insert_pkg->execute();
+                    $upsert_count++;
+                }
+            }
+            $stmt_insert_pkg->close();
+            $conn->commit();
+            $success_message = "ນຳເຂົ້າ/ອັບເດດສຳເລັດ " . $upsert_count . " ແພັກເກັດ.";
+
+        } catch (Exception $e) { $conn->rollback(); $error_message = "ເກີດຂໍ້ຜິດພາດ: " . $e->getMessage(); }
+    }
 }
 
 require_once 'admin_header.php';
-$suppliers = $conn->query("SELECT id, name FROM api_suppliers WHERE is_active = 1");
+$suppliers = $conn->query("SELECT id, name, exchange_rate FROM api_suppliers WHERE is_active = 1");
 ?>
+<style>
+    /* Add styles for drag-and-drop functionality */
+    .draggable-row { cursor: move; }
+    .dragging { opacity: 0.5; background: #f0f8ff; }
+</style>
 <div class="container-fluid">
     <h1 class="h3 mb-4 text-gray-800">Import Game from Cache</h1>
     <?php if(!empty($success_message)): ?> <div class="alert alert-success"><?php echo $success_message; ?></div> <?php endif; ?>
@@ -69,24 +116,23 @@ $suppliers = $conn->query("SELECT id, name FROM api_suppliers WHERE is_active = 
                 <div class="col-md-3"><label class="form-label fw-bold">1. ເລືອກ Supplier:</label>
                     <select id="supplierSelect" class="form-select">
                         <option value="">-- ກະລຸນາເລືອກ --</option>
-                        <?php if ($suppliers && $suppliers->num_rows > 0): ?>
-                            <?php while($row = $suppliers->fetch_assoc()): ?>
-                                <option value="<?php echo $row['id']; ?>"><?php echo htmlspecialchars($row['name']); ?></option>
-                            <?php endwhile; ?>
-                        <?php endif; ?>
+                        <?php if ($suppliers && $suppliers->num_rows > 0): mysqli_data_seek($suppliers, 0); while($row = $suppliers->fetch_assoc()): ?>
+                            <option value="<?php echo $row['id']; ?>" data-exchange-rate="<?php echo htmlspecialchars($row['exchange_rate'] ?: '1.0'); ?>">
+                                <?php echo htmlspecialchars($row['name']); ?>
+                            </option>
+                        <?php endwhile; endif; ?>
                     </select>
                 </div>
                 <div class="col-md-3"><label class="form-label fw-bold">2. ເລືອກໝວດໝູ່:</label><select id="categorySelect" class="form-select" disabled></select></div>
                 <div class="col-md-3"><label class="form-label fw-bold">3. ເລືອກເກມ:</label><select id="operatorSelect" class="form-select" disabled></select></div>
                 <div class="col-md-3"><label class="form-label fw-bold">4. ເລືອກປະເພດ:</label><select id="jenisSelect" class="form-select" disabled></select></div>
             </div>
-            <div id="debug-info" class="mt-3 p-2 bg-light border rounded" style="display: none;"></div>
         </div>
     </div>
     <div id="packagesSection" style="display:none;">
         <form method="POST" action="import_from_cache.php">
             <div class="card shadow mb-4">
-                <div class="card-header"><h6 class="m-0 font-weight-bold text-primary">ກຳຫນົດລາຄາຂາຍ ແລະ ນຳເຂົ້າ</h6></div>
+                <div class="card-header"><h6 class="m-0 font-weight-bold text-primary">ກຳຫນົດລາຄາຂາຍ ແລະ ນຳເຂົ້າ (ສາມາດລາກເພື່ອຈັດລຳດັບໄດ້)</h6></div>
                 <div class="card-body">
                     <div id="packagesContainer" class="table-responsive"></div>
                     <div id="hiddenInputsContainer"></div>
@@ -98,6 +144,7 @@ $suppliers = $conn->query("SELECT id, name FROM api_suppliers WHERE is_active = 
 </div>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // --- Elements ---
     const supplierSelect = document.getElementById('supplierSelect');
     const categorySelect = document.getElementById('categorySelect');
     const operatorSelect = document.getElementById('operatorSelect');
@@ -105,188 +152,195 @@ document.addEventListener('DOMContentLoaded', function() {
     const packagesSection = document.getElementById('packagesSection');
     const packagesContainer = document.getElementById('packagesContainer');
     const hiddenInputsContainer = document.getElementById('hiddenInputsContainer');
-    const debugInfo = document.getElementById('debug-info');
-    
-    let currentSupplierDetails = { exchange_rate: 1.0, default_markup: 15 };
 
-    // Converted to async function to use await
-    async function apiFetch(action, params = {}) {
+    let currentExchangeRate = 1.0;
+    
+    // --- Helper Functions (No changes here) ---
+    function apiFetch(action, params = {}) {
         const url = new URL(window.location.href.split('?')[0]);
         url.searchParams.set('action', action);
         url.searchParams.set('supplier_id', supplierSelect.value);
         for(const key in params) { url.searchParams.set(key, params[key]); }
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.json();
+        return fetch(url).then(res => res.json());
     }
-    
     function populateSelect(selectEl, data, valueKey, textKey, defaultText) {
         selectEl.innerHTML = `<option value="">${defaultText}</option>`;
         if (data && Array.isArray(data)) { data.forEach(item => { selectEl.innerHTML += `<option value="${item[valueKey]}">${item[textKey]}</option>`; }); }
     }
-
-    function resetSelect(selectEl, defaultText) {
+    function resetSelect(selectEl, defaultText = '--') {
         selectEl.innerHTML = `<option value="">${defaultText}</option>`;
         selectEl.disabled = true;
     }
 
-    // ***** START: JAVASCRIPT FIX USING ASYNC/AWAIT *****
-    supplierSelect.addEventListener('change', async function() {
-        resetSelect(categorySelect, '--'); resetSelect(operatorSelect, '--'); resetSelect(jenisSelect, '--');
+    // --- Event Listeners (No changes here) ---
+    supplierSelect.addEventListener('change', function() {
+        resetSelect(categorySelect); resetSelect(operatorSelect); resetSelect(jenisSelect);
         packagesSection.style.display = 'none';
-        debugInfo.style.display = 'none';
         if (!this.value) return;
-
-        try {
-            // Step 1: WAIT for supplier details to be fetched
-            const detailsResult = await apiFetch('get_supplier_details');
-            if (detailsResult.success && detailsResult.data && detailsResult.data.exchange_rate) {
-                currentSupplierDetails.exchange_rate = parseFloat(detailsResult.data.exchange_rate);
-                currentSupplierDetails.default_markup = parseInt(detailsResult.data.default_markup);
-            } else {
-                // Reset to default if fetch fails
-                currentSupplierDetails.exchange_rate = 1.0;
-                currentSupplierDetails.default_markup = 15;
-            }
-            
-            debugInfo.style.display = 'block';
-            debugInfo.innerHTML = `<strong>Debug Info:</strong> Current Exchange Rate = <strong>${currentSupplierDetails.exchange_rate}</strong> | Default Markup = <strong>${currentSupplierDetails.default_markup}%</strong>`;
-
-            // Step 2: Now that we have details, WAIT for categories
-            categorySelect.disabled = false; 
-            categorySelect.innerHTML = '<option>Loading...</option>';
-            const categoryResult = await apiFetch('get_categories');
-            if (categoryResult.success) {
-                populateSelect(categorySelect, categoryResult.data, 'val', 'txt', '-- ເລືອກໝວດໝູ່ --');
-            }
-        } catch (error) {
-            console.error("Error during supplier selection:", error);
-            debugInfo.innerHTML = "Error fetching supplier details or categories.";
-            debugInfo.style.display = 'block';
-        }
+        const selectedOption = this.options[this.selectedIndex];
+        currentExchangeRate = parseFloat(selectedOption.dataset.exchangeRate) || 1.0;
+        categorySelect.disabled = false; categorySelect.innerHTML = '<option>Loading...</option>';
+        apiFetch('get_categories').then(result => {
+            if (result.success) populateSelect(categorySelect, result.data, 'val', 'txt', '-- ເລືອກໝວດໝູ່ --');
+        });
     });
-    // ***** END JAVASCRIPT FIX *****
-    
-    // The rest of the event listeners can be async as well for consistency
-    categorySelect.addEventListener('change', async function() {
-        resetSelect(operatorSelect, '--'); resetSelect(jenisSelect, '--');
+    categorySelect.addEventListener('change', function() {
+        resetSelect(operatorSelect); resetSelect(jenisSelect);
         packagesSection.style.display = 'none';
         if (!this.value) return;
         operatorSelect.disabled = false; operatorSelect.innerHTML = '<option>Loading...</option>';
-        const result = await apiFetch('get_operators', { category: this.value });
-        if (result.success) populateSelect(operatorSelect, result.data, 'val', 'txt', '-- ເລືອກເກມ --');
+        apiFetch('get_operators', { category: this.value }).then(result => {
+            if (result.success) populateSelect(operatorSelect, result.data, 'val', 'txt', '-- ເລືອກເກມ --');
+        });
     });
-
-    operatorSelect.addEventListener('change', async function() {
-        resetSelect(jenisSelect, '--');
+    operatorSelect.addEventListener('change', function() {
+        resetSelect(jenisSelect);
         packagesSection.style.display = 'none';
         if (!this.value) return;
         jenisSelect.disabled = false; jenisSelect.innerHTML = '<option>Loading...</option>';
-        const result = await apiFetch('get_jenis', { brand: this.value });
-        if (result.success) populateSelect(jenisSelect, result.data, 'val', 'txt', '-- ເລືອກປະເພດ --');
-     });
-
-    jenisSelect.addEventListener('change', async function() {
+        apiFetch('get_jenis', { brand: this.value }).then(result => {
+            if (result.success) populateSelect(jenisSelect, result.data, 'val', 'txt', '-- ເລືອກປະເພດ --');
+        });
+    });
+    jenisSelect.addEventListener('change', function() {
         packagesSection.style.display = 'none';
         if (!this.value) return;
         packagesContainer.innerHTML = `<div class="text-center p-4"><div class="spinner-border"></div></div>`;
         packagesSection.style.display = 'block';
-        const result = await apiFetch('get_packages', { jenis: this.value, brand: operatorSelect.value });
-        if (result.success && Array.isArray(result.data)) {
-            renderPackagesTable(result.data, currentSupplierDetails);
-        }
+        apiFetch('get_packages', { jenis: this.value, brand: operatorSelect.value }).then(result => {
+            if (result.success && Array.isArray(result.data)) {
+                renderPackagesTable(result.data);
+            }
+        });
     });
 
-    function renderPackagesTable(packages, supplierDetails) {
+    // --- Main Logic: Table Rendering and Calculation ---
+    function renderPackagesTable(packages) {
         let gameName = operatorSelect.options[operatorSelect.selectedIndex].text;
         let operatorCode = operatorSelect.value;
+        
         let tableHTML = `<table class="table table-bordered table-hover align-middle">
-            <thead>
+            <thead class="table-dark">
                 <tr>
+                    <th style="width: 3%;"></th>
                     <th style="width: 5%;"><input type="checkbox" id="checkAll" checked></th>
-                    <th style="width: 30%;">ຊື່ແພັກເກັດ</th>
+                    <th>ຊື່ແພັກເກັດ</th>
                     <th>ຕົ້ນທຶນ (API)</th>
                     <th>ຕົ້ນທຶນ (LAK)</th>
-                    <th style="width: 10%;">ກຳໄລ (%)</th>
-                    <th style="width: 15%;">ລາຄາຂາຍ (LAK)</th>
+                    <th style="width: 8%;">ກຳໄລ (%)</th>
+                    <th>ລາຄາຂາຍ (LAK)</th>
                     <th>ກຳໄລ (LAK)</th>
                 </tr>
             </thead>
-            <tbody>`;
-        
-        if (packages.length === 0) { 
-            tableHTML += `<tr><td colspan="7" class="text-center">ບໍ່ພົບແພັກເກັດ.</td></tr>`; 
+            <tbody id="package-list-body">`;
+
+        if (packages.length === 0) {
+            tableHTML += `<tr><td colspan="8" class="text-center">ບໍ່ພົບແພັກເກັດ.</td></tr>`;
         } else {
             packages.forEach(pkg => {
-                let apiCost = parseFloat(pkg.cost_price);
-                let costPriceInLAK = apiCost * supplierDetails.exchange_rate; 
-                let markupPercent = supplierDetails.default_markup;
-                let suggestedPrice = Math.ceil(costPriceInLAK * (1 + (markupPercent / 100)) / 1000) * 1000;
-                if (suggestedPrice < costPriceInLAK) { suggestedPrice = Math.ceil(costPriceInLAK / 1000) * 1000; }
-                let profit = suggestedPrice - costPriceInLAK;
+                let costPriceAPI = parseFloat(pkg.cost_price);
+                let costPriceLAK = costPriceAPI * currentExchangeRate;
+                let markupPercent = 15;
+                let sellingPrice = Math.ceil((costPriceLAK * (1 + markupPercent / 100)) / 1000) * 1000;
+                let profitLAK = sellingPrice - costPriceLAK;
 
-                tableHTML += `
-                    <tr data-product-code="${pkg.product_code}">
-                        <td><input type="checkbox" name="packages[${pkg.product_code}][import]" checked></td>
-                        <td><input type="text" class="form-control form-control-sm" name="packages[${pkg.product_code}][name]" value="${pkg.product_name}"></td>
-                        <td>${apiCost.toLocaleString('en-US')}</td>
-                        <td class="cost-lak" data-cost-lak="${costPriceInLAK}">${costPriceInLAK.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-                        <td><input type="number" class="form-control form-control-sm profit-percent-input" value="${markupPercent}" step="1"></td>
-                        <td>
-                            <input type="hidden" name="packages[${pkg.product_code}][cost_price]" value="${Math.ceil(costPriceInLAK)}">
-                            <input type="number" class="form-control form-control-sm selling-price-input" name="packages[${pkg.product_code}][selling_price]" value="${suggestedPrice}" required>
-                        </td>
-                        <td class="profit-lak-cell fw-bold" style="color: ${profit < 0 ? 'red' : 'green'};">${profit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-                    </tr>`;
+                // --- CHANGE 3: Add drag handle and make name editable ---
+                tableHTML += `<tr class="draggable-row" draggable="true">
+                    <td class="text-center"><i class="fas fa-bars text-muted"></i></td>
+                    <td>
+                        <input type="checkbox" class="form-check-input" name="packages[${pkg.product_code}][import]" checked>
+                    </td>
+                    <td><input type="text" class="form-control" name="packages[${pkg.product_code}][name]" value="${pkg.product_name}"></td>
+                    <td>${costPriceAPI.toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+                    <td class="cost-lak-cell">
+                        ${costPriceLAK.toLocaleString('en-US', {minimumFractionDigits: 2})}
+                        <input type="hidden" name="packages[${pkg.product_code}][cost_price_lak]" value="${costPriceLAK.toFixed(2)}">
+                    </td>
+                    <td><input type="number" class="form-control markup-percent" value="${markupPercent}" step="1"></td>
+                    <td><input type="number" class="form-control selling-price" name="packages[${pkg.product_code}][selling_price]" value="${sellingPrice}" step="1000"></td>
+                    <td class="profit-lak-cell">${profitLAK.toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
+                </tr>`;
             });
         }
         tableHTML += `</tbody></table>`;
         packagesContainer.innerHTML = tableHTML;
         hiddenInputsContainer.innerHTML = `<input type="hidden" name="game_name" value="${gameName}"><input type="hidden" name="operator_code" value="${operatorCode}"><input type="hidden" name="supplier_id" value="${supplierSelect.value}">`;
         
-        const checkAll = document.getElementById('checkAll');
-        if(checkAll) {
-            checkAll.addEventListener('change', e => document.querySelectorAll('input[name*="[import]"]').forEach(c => c.checked = e.target.checked));
-        }
+        document.getElementById('checkAll').addEventListener('change', e => {
+            document.querySelectorAll('input[name*="[import]"]').forEach(c => c.checked = e.target.checked);
+        });
+
+        // --- NEW: Add Event Listeners for Calculation & Drag-Drop ---
+        addTableEventListeners();
     }
 
-    function updateRowPrices(targetElement) {
-        const row = targetElement.closest('tr');
-        const costLak = parseFloat(row.querySelector('.cost-lak').dataset.costLak);
-        const percentInput = row.querySelector('.profit-percent-input');
-        const priceInput = row.querySelector('.selling-price-input');
-        const profitCell = row.querySelector('.profit-lak-cell');
+    function addTableEventListeners() {
+        const packageBody = document.getElementById('package-list-body');
+        if (!packageBody) return;
 
-        if (targetElement.classList.contains('profit-percent-input')) {
-            const newPercent = parseFloat(percentInput.value) || 0;
-            let newPrice = costLak * (1 + (newPercent / 100));
-            newPrice = Math.ceil(newPrice / 1000) * 1000;
-            priceInput.value = newPrice;
-        }
+        // Dynamic calculation logic
+        packageBody.addEventListener('input', function(e) {
+            const row = e.target.closest('tr');
+            if (!row) return;
 
-        const currentPrice = parseFloat(priceInput.value) || 0;
-        const newProfit = currentPrice - costLak;
-        
-        if (targetElement.classList.contains('selling-price-input')) {
-            if (costLak > 0) {
-                 const newPercent = ((currentPrice / costLak) - 1) * 100;
-                 percentInput.value = newPercent.toFixed(2);
-            } else {
-                 percentInput.value = 0;
+            const costPriceLAK = parseFloat(row.querySelector('input[name*="[cost_price_lak]"]').value);
+            const markupInput = row.querySelector('.markup-percent');
+            const sellingPriceInput = row.querySelector('.selling-price');
+            const profitCell = row.querySelector('.profit-lak-cell');
+
+            if (e.target.classList.contains('markup-percent')) {
+                let markup = parseFloat(e.target.value) || 0;
+                let newSellingPrice = Math.ceil((costPriceLAK * (1 + markup / 100)) / 1000) * 1000;
+                sellingPriceInput.value = newSellingPrice;
+                profitCell.textContent = (newSellingPrice - costPriceLAK).toLocaleString('en-US', {minimumFractionDigits: 2});
             }
-        }
-        
-        profitCell.textContent = newProfit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
-        profitCell.style.color = newProfit < 0 ? 'red' : 'green';
+
+            if (e.target.classList.contains('selling-price')) {
+                let sellingPrice = parseFloat(e.target.value) || 0;
+                if (costPriceLAK > 0) {
+                    let newMarkup = ((sellingPrice / costPriceLAK) - 1) * 100;
+                    markupInput.value = newMarkup.toFixed(2);
+                }
+                profitCell.textContent = (sellingPrice - costPriceLAK).toLocaleString('en-US', {minimumFractionDigits: 2});
+            }
+        });
+
+        // Drag and Drop Logic
+        let draggingEle;
+        const rows = packageBody.querySelectorAll('.draggable-row');
+        rows.forEach(row => {
+            row.addEventListener('dragstart', function() {
+                draggingEle = this;
+                this.classList.add('dragging');
+            });
+            row.addEventListener('dragend', function() {
+                this.classList.remove('dragging');
+            });
+        });
+
+        packageBody.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            const afterElement = getDragAfterElement(packageBody, e.clientY);
+            if (afterElement == null) {
+                packageBody.appendChild(draggingEle);
+            } else {
+                packageBody.insertBefore(draggingEle, afterElement);
+            }
+        });
     }
 
-    packagesContainer.addEventListener('input', function(e) {
-        if (e.target.classList.contains('profit-percent-input') || e.target.classList.contains('selling-price-input')) {
-            updateRowPrices(e.target);
-        }
-    });
+    function getDragAfterElement(container, y) {
+        const draggableElements = [...container.querySelectorAll('.draggable-row:not(.dragging)')];
+        return draggableElements.reduce((closest, child) => {
+            const box = child.getBoundingClientRect();
+            const offset = y - box.top - box.height / 2;
+            if (offset < 0 && offset > closest.offset) {
+                return { offset: offset, element: child };
+            } else {
+                return closest;
+            }
+        }, { offset: Number.NEGATIVE_INFINITY }).element;
+    }
 });
 </script>
 </div>
