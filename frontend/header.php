@@ -1,39 +1,21 @@
 <?php
-// File: /frontend/header.php (Definitive Corrected Version)
-
-// 1. ເລີ່ມ Session ກ່ອນທຸກຢ່າງສະເໝີ
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-// 2. ເອີ້ນໃຊ້ໄຟລ໌ເຊື່ອມຕໍ່ຖານຂໍ້ມູນ
-// This file creates the $conn variable.
+// File: /header.php
+session_start();
 require_once 'db.php';
 
-// 3. ກວດສອບວ່າຜູ້ໃຊ້ Login ແລ້ວຫຼືບໍ່
 if (!isset($_SESSION['member_loggedin']) || $_SESSION['member_loggedin'] !== true) {
     header("location: login.php");
     exit;
 }
 
-// 4. ດຶງຂໍ້ມູນຜູ້ໃຊ້ (ຫຼັງຈາກແນ່ໃຈແລ້ວວ່າມີ Session ແລະ $conn)
 $member_id = $_SESSION['member_id'];
-$wallet_balance = 0; // Set default value
-
-// Check if $conn is valid before using it.
-if (isset($conn) && $conn instanceof mysqli) {
-    $stmt = $conn->prepare("SELECT wallet_balance FROM members WHERE id = ?");
-    if ($stmt) {
-        $stmt->bind_param("i", $member_id);
-        $stmt->execute();
-        $result = $stmt->get_result();
-        if ($result->num_rows > 0) {
-            $member = $result->fetch_assoc();
-            $wallet_balance = $member['wallet_balance'] ?? 0;
-        }
-        $stmt->close();
-    }
-}
+$stmt = $conn->prepare("SELECT wallet_balance FROM members WHERE id = ?");
+$stmt->bind_param("i", $member_id);
+$stmt->execute();
+$result = $stmt->get_result();
+$member = $result->fetch_assoc();
+$wallet_balance = $member['wallet_balance'] ?? 0;
+$stmt->close();
 ?>
 <!DOCTYPE html>
 <html lang="lo">
@@ -46,11 +28,15 @@ if (isset($conn) && $conn instanceof mysqli) {
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
     <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;700&display=swap" rel="stylesheet">
 
+    <link href="https://fonts.googleapis.com/css2?family=Phetsarath+OT:wght@400;700&display=swap" rel="stylesheet">
     <style>
         body { 
-            font-family: 'Kanit', sans-serif;
+            /* === START EDIT: Change Font Family === */
+            font-family: 'Phetsarath OT', 'Kanit', sans-serif; /* Set Phetsarath OT as primary */
+            /* === END EDIT === */
             background-color: #f4f7f6; 
         }
     </style>
