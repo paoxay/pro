@@ -40,7 +40,18 @@ $packages_result = $stmt_packages->get_result();
     .game-description { color: #555; line-height: 1.8; } 
     .game-description img { max-width: 100%; height: auto; border-radius: 5px; } 
     .step-heading { font-weight: 700; color: #34495e; margin-bottom: 1.5rem; } 
-    .package-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1rem; } 
+     .package-grid {
+        display: grid;
+        /* Mobile-first: 2 columns by default */
+        grid-template-columns: repeat(2, 1fr); 
+        gap: 1rem; 
+    }
+
+    @media (min-width: 768px) {
+        .package-grid {
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        }
+    }
     .package-item { cursor: pointer; border: 2px solid #e0e0e0; border-radius: 10px; transition: all 0.25s ease-in-out; position: relative; background: #fff; padding: 1rem; } 
     .package-item:hover { transform: translateY(-5px); box-shadow: 0 12px 24px rgba(0,0,0,0.08); border-color: #74b9ff; } 
     .package-item.selected { border-color: #0984e3; background-color: #dfefff; box-shadow: 0 8px 16px rgba(9,132,227,0.2); } 
