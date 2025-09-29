@@ -1,11 +1,12 @@
 <?php
-// File: /frontend/history.php (Updated to show UID on the main list)
-require_once 'header.php';
+// File: /frontend/history.php (Full, Complete, and Polished Version)
+require_once 'header.php'; // Assuming header.php is in the same folder
 
 // --- PHP Logic with Search ---
 $member_id = $_SESSION['member_id'];
 $search_term = isset($_GET['search']) ? trim($_GET['search']) : '';
 
+// === START EDIT 1: Updated SQL Query ===
 $sql = "SELECT 
             o.id, 
             o.order_code,
@@ -13,14 +14,18 @@ $sql = "SELECT
             o.game_user_info, 
             o.amount, 
             o.status,
+            o.balance_before, 
+            o.balance_after,
             g.name AS game_name,
             p.name AS package_name
         FROM orders AS o
         JOIN game_packages AS p ON o.package_id = p.id
         JOIN games AS g ON p.game_id = g.id
         WHERE o.member_id = ?";
+// === END EDIT 1 ===
 
 if (!empty($search_term)) {
+    // UPDATED: Search by order_code or game_name
     $sql .= " AND (o.order_code LIKE ? OR g.name LIKE ?)";
 }
 
@@ -52,13 +57,14 @@ $history_result = $stmt->get_result();
     }
     .status-badge { font-size: 0.9rem; padding: 0.5em 1em; }
     
+    /* Receipt Modal Styles */
     .receipt-modal .modal-header { border-bottom: none; }
     .receipt-modal .status-header {
         padding: 1.5rem;
         border-radius: 5px;
         color: white;
         text-align: center;
-        margin: -1px; 
+        margin: -1px; /* To align with modal content padding */
     }
     .receipt-modal .status-completed { background-color: #198754; }
     .receipt-modal .status-pending { background-color: #ffc107; color: #000 !important; }
@@ -96,35 +102,20 @@ if (isset($_SESSION['success_message'])) {
 
 <div class="history-list">
     <?php if ($history_result && $history_result->num_rows > 0): ?>
-        <?php while($order = $history_result->fetch_assoc()): 
-            // --- NEW LOGIC TO EXTRACT UID ---
-            $uid_display = '';
-            $user_info_array = json_decode($order['game_user_info'], true);
-            // Check if JSON is valid and 'uid' key exists. You can change 'uid' to other keys like 'id' or 'player_id' if needed.
-            if (json_last_error() === JSON_ERROR_NONE) {
-                foreach ($user_info_array as $key => $value) {
-                    // Find a key that looks like an ID
-                    if (stripos($key, 'id') !== false || stripos($key, 'uid') !== false) {
-                         $uid_display = htmlspecialchars($value);
-                         break; // Stop after finding the first ID-like key
-                    }
-                }
-            }
-        ?>
+        <?php while($order = $history_result->fetch_assoc()): ?>
             <div class="history-item">
                 <div class="d-flex align-items-center p-3">
                     <div class="flex-grow-1">
                         <h5 class="mb-1 fw-bold"><?php echo htmlspecialchars($order['game_name']); ?></h5>
                         <p class="mb-1 text-muted">ເລກອໍເດີ້: <?php echo htmlspecialchars($order['order_code']); ?></p>
                         
-                        <?php if (!empty($uid_display)): ?>
-                            <p class="mb-1 text-muted">UID: <span class="fw-bold text-dark"><?php echo $uid_display; ?></span></p>
-                        <?php endif; ?>
-
+                        <div class="text-muted" style="font-size: 0.85em;">
+                           ຍອດກ່ອນ: <?php echo number_format($order['balance_before']); ?> ກີບ <i class="fas fa-long-arrow-alt-right mx-1"></i> ຍອດຫຼັງ: <?php echo number_format($order['balance_after']); ?> ກີບ
+                        </div>
                         <small class="text-muted"><?php echo date('d/m/Y, H:i', strtotime($order['created_at'])); ?></small>
                     </div>
                     <div class="text-end ms-3">
-                        <h5 class="fw-bold text-primary mb-1"><?php echo number_format($order['amount']); ?> ກີບ</h5>
+                        <h5 class="fw-bold text-danger mb-1"><?php echo number_format($order['amount']); ?> ກີບ</h5>
                         <?php
                             $status = $order['status'];
                             $badge_class = 'bg-secondary';
@@ -180,7 +171,7 @@ if (isset($_SESSION['success_message'])) {
                         <span id="modal-package"></span>
                     </div>
                     <div id="modal-user-info"></div>
-                    <div class="receipt-item">
+                     <div class="receipt-item">
                         <span class="receipt-item-label fs-5">ລາຄາລວມ:</span>
                         <span id="modal-price" class="fs-5 fw-bold text-primary"></span>
                     </div>
@@ -200,7 +191,6 @@ if (isset($_SESSION['success_message'])) {
 </footer>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const receiptModal = document.getElementById('receiptModal');
@@ -216,13 +206,15 @@ document.addEventListener('DOMContentLoaded', function () {
         receiptModal.querySelector('#modal-order-id').textContent = orderData.order_code; 
         
         const date = new Date(orderData.created_at.replace(' ', 'T'));
-        receiptModal.querySelector('#modal-date').textContent = date.toLocaleString('lo-LA');
+        receiptModal.querySelector('#modal-date').textContent = date.toLocaleString('lo-LA'); // Using Lao locale
         receiptModal.querySelector('#modal-game').textContent = orderData.game_name;
         receiptModal.querySelector('#modal-package').textContent = orderData.package_name;
         receiptModal.querySelector('#modal-price').textContent = parseFloat(orderData.amount).toLocaleString('en-US') + ' ກີບ';
 
         const userInfoContainer = receiptModal.querySelector('#modal-user-info');
         userInfoContainer.innerHTML = '';
+        
+        // Populate game user info (ID, Server, etc.)
         if (orderData.game_user_info) {
             try {
                 const userInfo = JSON.parse(orderData.game_user_info);
@@ -233,12 +225,25 @@ document.addEventListener('DOMContentLoaded', function () {
                     userInfoContainer.appendChild(itemDiv);
                 }
             } catch (e) {
+                // Fallback for non-json data for safety
                 const itemDiv = document.createElement('div');
                 itemDiv.className = 'receipt-item';
                 itemDiv.innerHTML = `<span class="receipt-item-label">Info:</span><span>${orderData.game_user_info}</span>`;
                 userInfoContainer.appendChild(itemDiv);
             }
         }
+
+        // === START EDIT 3: Add Balance info to Modal ===
+        const balanceBeforeDiv = document.createElement('div');
+        balanceBeforeDiv.className = 'receipt-item';
+        balanceBeforeDiv.innerHTML = `<span class="receipt-item-label">ຍອດເງິນກ່ອນຊື້:</span><span class="fw-bold">${parseFloat(orderData.balance_before).toLocaleString('en-US', {minimumFractionDigits: 2})} ກີບ</span>`;
+        userInfoContainer.appendChild(balanceBeforeDiv);
+
+        const balanceAfterDiv = document.createElement('div');
+        balanceAfterDiv.className = 'receipt-item';
+        balanceAfterDiv.innerHTML = `<span class="receipt-item-label">ຍອດເງິນຫຼັງຊື້:</span><span class="fw-bold">${parseFloat(orderData.balance_after).toLocaleString('en-US', {minimumFractionDigits: 2})} ກີບ</span>`;
+        userInfoContainer.appendChild(balanceAfterDiv);
+        // === END EDIT 3 ===
     });
 });
 </script>
