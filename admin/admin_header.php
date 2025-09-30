@@ -74,24 +74,85 @@ require_once 'auth_check.php';
         </a>
         <hr>
         <ul class="nav nav-pills flex-column mb-auto">
-            <li class="nav-item"><a href="dashboard.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'dashboard.php' ? 'active' : ''; ?>"><i class="fas fa-tachometer-alt me-2"></i> Dashboard</a></li>
-            <li><a href="manage_orders.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'manage_orders.php' ? 'active' : ''; ?>"><i class="fas fa-file-invoice-dollar me-2"></i> ຈັດການອໍເດີ້</a></li>
-            <li><a href="manage_games.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'manage_games.php' ? 'active' : ''; ?>"><i class="fas fa-cogs me-2"></i> ຈັດການເກມ & ແພັກເກັດ</a></li>
-            <li><a href="manage_members.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'manage_members.php' ? 'active' : ''; ?>"><i class="fas fa-users me-2"></i> ຈັດການສະມາຊິກ</a></li>
-            <li><a href="manage_suppliers.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'manage_suppliers.php' ? 'active' : ''; ?>"><i class="fas fa-server me-2"></i> ຈັດການ Supplier</a></li>
-            <li><a href="import_from_api.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'import_from_api.php' ? 'active' : ''; ?>"><i class="fas fa-cloud-download-alt me-2"></i> Import from API</a></li>
+            <li class="nav-item">
+                <a href="dashboard.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'dashboard.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-tachometer-alt me-2"></i> Dashboard
+                </a>
+            </li>
+            <li>
+                <a href="manage_members.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'manage_members.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-users me-2"></i> ຈັດການສະມາຊິກ
+                </a>
+            </li>
+            
+            <hr>
+            <li class="nav-item">
+                <a class="nav-link text-secondary" style="pointer-events: none;">
+                    <i class="fas fa-server"></i> TOKO API
+                </a>
+            </li>
+            <li>
+                <a href="manage_orders.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'manage_orders.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-file-invoice-dollar me-2"></i> ຈັດການອໍເດີ້ (TOKO)
+                </a>
+            </li>
+            <li>
+                <a href="manage_games.php" class="nav-link text-white <?php echo in_array(basename($_SERVER['PHP_SELF']), ['manage_games.php', 'add_game.php', 'edit_game.php', 'manage_packages.php']) ? 'active' : ''; ?>">
+                    <i class="fas fa-cogs me-2"></i> ຈັດການເກມ & ແພັກເກັດ (TOKO)
+                </a>
+            </li>
+            <li>
+                <a href="manage_suppliers.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'manage_suppliers.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-plug me-2"></i> ຈັດການ Supplier (TOKO)
+                </a>
+            </li>
+            <li>
+                <a href="sync_page.php" class="nav-link text-white <?php echo in_array(basename($_SERVER['PHP_SELF']), ['sync_page.php', 'import_from_cache.php']) ? 'active' : ''; ?>">
+                    <i class="fas fa-sync me-2"></i> Import from API (TOKO)
+                </a>
+            </li>
+
+            <hr>
+            <li class="nav-item">
+                <a class="nav-link text-secondary" style="pointer-events: none;">
+                    <i class="fas fa-smile"></i> SMILE ONE
+                </a>
+            </li>
+            <li>
+                <a href="manage_smileone_suppliers.php" class="nav-link text-white <?php echo in_array(basename($_SERVER['PHP_SELF']), ['manage_smileone_suppliers.php']) ? 'active' : ''; ?>">
+                    <i class="fas fa-key me-2"></i> ຈັດການ API Keys
+                </a>
+            </li>
+            <li>
+                <a href="manage_smileone_games.php" class="nav-link text-white <?php echo in_array(basename($_SERVER['PHP_SELF']), ['manage_smileone_games.php', 'import_smileone_games.php', 'manage_smileone_packages.php']) ? 'active' : ''; ?>">
+                    <i class="fas fa-gamepad me-2"></i> ຈັດການເກມ & ແພັກເກັດ
+                </a>
+            </li>
+            <li>
+                <a href="manage_smileone_orders.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'manage_smileone_orders.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-file-alt me-2"></i> ຈັດການອໍເດີ້ (Smile One)
+                </a>
+            </li>
+            
         </ul>
         <hr>
         <div class="dropdown">
-            <a href="#" class="d-flex align-items-center text-white text-decoration-none dropdown-toggle" data-bs-toggle="dropdown">
+            <a href="#" class="d-flex align-items-center text-white text-decoration-none dropdown-toggle" id="dropdownUser1" data-bs-toggle="dropdown" aria-expanded="false">
                 <i class="fas fa-user-circle fa-lg me-2"></i>
                 <strong><?php echo htmlspecialchars($_SESSION["admin_username"]); ?></strong>
             </a>
-            <ul class="dropdown-menu dropdown-menu-dark text-small shadow">
+            <ul class="dropdown-menu dropdown-menu-dark text-small shadow" aria-labelledby="dropdownUser1">
                 <li><a class="dropdown-item" href="logout.php">ອອກຈາກລະບົບ</a></li>
             </ul>
+
         </div>
     </div>
+
+
+
+
+
+
 
     <div class="main-content">
         <nav class="navbar navbar-dark bg-dark mobile-navbar">
@@ -113,22 +174,76 @@ require_once 'auth_check.php';
           <div class="offcanvas-body d-flex flex-column p-3 pt-0">
             <hr>
             <ul class="nav nav-pills flex-column mb-auto">
-                <li class="nav-item"><a href="dashboard.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'dashboard.php' ? 'active' : ''; ?>"><i class="fas fa-tachometer-alt me-2"></i> Dashboard</a></li>
-                <li><a href="manage_orders.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'manage_orders.php' ? 'active' : ''; ?>"><i class="fas fa-file-invoice-dollar me-2"></i> ຈັດການອໍເດີ້</a></li>
-                <li><a href="manage_games.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'manage_games.php' ? 'active' : ''; ?>"><i class="fas fa-cogs me-2"></i> ຈັດການເກມ & ແພັກເກັດ</a></li>
-                <li><a href="manage_members.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'manage_members.php' ? 'active' : ''; ?>"><i class="fas fa-users me-2"></i> ຈັດການສະມາຊິກ</a></li>
-                <li><a href="manage_suppliers.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'manage_suppliers.php' ? 'active' : ''; ?>"><i class="fas fa-server me-2"></i> ຈັດການ Supplier</a></li>
-                <li><a href="import_from_api.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'import_from_api.php' ? 'active' : ''; ?>"><i class="fas fa-cloud-download-alt me-2"></i> Import from API</a></li>
-            </ul>
-            <hr>
-            <div class="dropdown">
-                <a href="#" class="d-flex align-items-center text-white text-decoration-none dropdown-toggle" data-bs-toggle="dropdown">
-                    <i class="fas fa-user-circle fa-lg me-2"></i>
-                    <strong><?php echo htmlspecialchars($_SESSION["admin_username"]); ?></strong>
+            <li class="nav-item">
+                <a href="dashboard.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'dashboard.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-tachometer-alt me-2"></i> Dashboard
                 </a>
-                <ul class="dropdown-menu dropdown-menu-dark text-small shadow">
-                    <li><a class="dropdown-item" href="logout.php">ອອກຈາກລະບົບ</a></li>
-                </ul>
+            </li>
+            <li>
+                <a href="manage_members.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'manage_members.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-users me-2"></i> ຈັດການສະມາຊິກ
+                </a>
+            </li>
+            
+            <hr>
+            <li class="nav-item">
+                <a class="nav-link text-secondary" style="pointer-events: none;">
+                    <i class="fas fa-server"></i> TOKO API
+                </a>
+            </li>
+            <li>
+                <a href="manage_orders.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'manage_orders.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-file-invoice-dollar me-2"></i> ຈັດການອໍເດີ້ (TOKO)
+                </a>
+            </li>
+            <li>
+                <a href="manage_games.php" class="nav-link text-white <?php echo in_array(basename($_SERVER['PHP_SELF']), ['manage_games.php', 'add_game.php', 'edit_game.php', 'manage_packages.php']) ? 'active' : ''; ?>">
+                    <i class="fas fa-cogs me-2"></i> ຈັດການເກມ & ແພັກເກັດ (TOKO)
+                </a>
+            </li>
+            <li>
+                <a href="manage_suppliers.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'manage_suppliers.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-plug me-2"></i> ຈັດການ Supplier (TOKO)
+                </a>
+            </li>
+            <li>
+                <a href="sync_page.php" class="nav-link text-white <?php echo in_array(basename($_SERVER['PHP_SELF']), ['sync_page.php', 'import_from_cache.php']) ? 'active' : ''; ?>">
+                    <i class="fas fa-sync me-2"></i> Import from API (TOKO)
+                </a>
+            </li>
+
+            <hr>
+            <li class="nav-item">
+                <a class="nav-link text-secondary" style="pointer-events: none;">
+                    <i class="fas fa-smile"></i> SMILE ONE
+                </a>
+            </li>
+            <li>
+                <a href="manage_smileone_suppliers.php" class="nav-link text-white <?php echo in_array(basename($_SERVER['PHP_SELF']), ['manage_smileone_suppliers.php']) ? 'active' : ''; ?>">
+                    <i class="fas fa-key me-2"></i> ຈັດການ API Keys
+                </a>
+            </li>
+            <li>
+                <a href="manage_smileone_games.php" class="nav-link text-white <?php echo in_array(basename($_SERVER['PHP_SELF']), ['manage_smileone_games.php', 'import_smileone_games.php', 'manage_smileone_packages.php']) ? 'active' : ''; ?>">
+                    <i class="fas fa-gamepad me-2"></i> ຈັດການເກມ & ແພັກເກັດ
+                </a>
+            </li>
+            <li>
+                <a href="manage_smileone_orders.php" class="nav-link text-white <?php echo basename($_SERVER['PHP_SELF']) == 'manage_smileone_orders.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-file-alt me-2"></i> ຈັດການອໍເດີ້ (Smile One)
+                </a>
+            </li>
+            
+        </ul>
+        <hr>
+        <div class="dropdown">
+            <a href="#" class="d-flex align-items-center text-white text-decoration-none dropdown-toggle" id="dropdownUser1" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="fas fa-user-circle fa-lg me-2"></i>
+                <strong><?php echo htmlspecialchars($_SESSION["admin_username"]); ?></strong>
+            </a>
+            <ul class="dropdown-menu dropdown-menu-dark text-small shadow" aria-labelledby="dropdownUser1">
+                <li><a class="dropdown-item" href="logout.php">ອອກຈາກລະບົບ</a></li>
+            </ul>
             </div>
           </div>
         </div>
