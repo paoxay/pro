@@ -1,5 +1,5 @@
 <?php
-// File: admin/manage_smileone_packages.php (Fully Upgraded & Complete Version)
+// File: admin/manage_smileone_packages.php (Corrected: api_price is now editable)
 require_once 'admin_header.php';
 require_once 'db_connect.php';
 
@@ -14,33 +14,20 @@ if (!$game) { die("<h2>Error: Game not found</h2>"); }
 $stmt_game->close();
 $exchange_rate = (float)$game['exchange_rate'];
 
-// -- UPDATED QUERY: Order by display_order first, then by cost_price --
 $packages_result = $conn->query("SELECT * FROM smileone_packages WHERE game_id = $game_id ORDER BY display_order ASC, cost_price ASC");
 ?>
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 
 <style>
-    /* Style for visual feedback during drag */
-    .sortable-ghost {
-        opacity: 0.4;
-        background-color: #c8ebfb;
-    }
-    /* Style for the drag handle */
-    .sort-handle {
-        cursor: grab;
-        color: #b0b0b0;
-    }
-    .sort-handle:hover {
-        color: #333;
-    }
-    #packagesTable input[type="number"] {
-        min-width: 120px;
-    }
+    .sortable-ghost { opacity: 0.4; background-color: #c8ebfb; }
+    .sort-handle { cursor: grab; color: #b0b0b0; }
+    .sort-handle:hover { color: #333; }
+    #packagesTable input[type="number"] { min-width: 120px; }
 </style>
 
 <div class="container-fluid">
-    <a href="manage_smileone_games.php" class="btn btn-outline-secondary mb-3"><i class="fas fa-arrow-left"></i> ກັບໄປໜ້າຈັດການເກມ</a>
+    <a href="manage_smileone_games.php" class="btn btn-outline-secondary mb-3"><i class="fas fa-arrow-left"></i> ກັບໄປ</a>
     <h2 class="h3 mb-3">ຈັດການແພັກເກັດ: <span class="text-primary"><?php echo htmlspecialchars($game['name']); ?></span></h2>
     <p>ອັດຕາແລກປ່ຽນປັດຈຸບັນ: <strong id="exchangeRate" data-rate="<?php echo $exchange_rate; ?>"><?php echo number_format($exchange_rate, 4); ?></strong></p>
 
@@ -73,9 +60,7 @@ $packages_result = $conn->query("SELECT * FROM smileone_packages WHERE game_id =
                                 <td class="selling-price text-end fw-bold text-danger"><?php echo number_format($pkg['selling_price'], 2); ?></td>
                                 <td class="profit text-end fw-bold text-success"><?php echo number_format($pkg['selling_price'] - $pkg['cost_price'], 2); ?></td>
                                 <td class="text-center">
-                                    <div class="form-check form-switch d-flex justify-content-center">
-                                        <input class="form-check-input status-toggle" type="checkbox" style="transform: scale(1.5);" <?php echo $pkg['status'] === 'active' ? 'checked' : ''; ?>>
-                                    </div>
+                                    <div class="form-check form-switch d-flex justify-content-center"><input class="form-check-input status-toggle" type="checkbox" style="transform: scale(1.5);" <?php echo $pkg['status'] === 'active' ? 'checked' : ''; ?>></div>
                                 </td>
                                 <td class="text-center">
                                     <button class="btn btn-sm btn-warning editBtn"><i class="fas fa-edit"></i></button>
@@ -100,12 +85,15 @@ document.addEventListener('DOMContentLoaded', function() {
     const exchangeRate = parseFloat(document.getElementById('exchangeRate').dataset.rate);
     let originalRowHTML = null;
 
+    // Function to calculate based on Markup or API Price change
     function updateCalculationsOnMarkup(row) {
-        const apiPrice = parseFloat(row.querySelector('.api-price').innerText.replace(/,/g, '')) || 0;
+        const apiPriceInput = row.querySelector('input[name="api_price"]');
         const markupInput = row.querySelector('input[name="markup_percentage"]');
         const sellingPriceInput = row.querySelector('input[name="selling_price"]');
         
+        const apiPrice = parseFloat(apiPriceInput.value) || 0;
         const markup = parseFloat(markupInput.value) || 0;
+        
         const costPrice = apiPrice * exchangeRate;
         const newSellingPrice = Math.ceil(costPrice * (1 + (markup / 100)));
         const newProfit = newSellingPrice - costPrice;
@@ -114,7 +102,8 @@ document.addEventListener('DOMContentLoaded', function() {
         sellingPriceInput.value = newSellingPrice.toFixed(0);
         row.querySelector('.profit').innerText = newProfit.toLocaleString('en-US', {minimumFractionDigits: 2});
     }
-
+    
+    // Function to calculate based on Selling Price change
     function updateCalculationsOnPrice(row) {
         const sellingPriceInput = row.querySelector('input[name="selling_price"]');
         const markupInput = row.querySelector('input[name="markup_percentage"]');
@@ -149,7 +138,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const selling_price = parseFloat(row.querySelector('.selling-price').innerText.replace(/,/g, ''));
 
             row.querySelector('.pkg-name').innerHTML = `<input type="text" class="form-control form-control-sm" name="name" value="${name}">`;
-            row.querySelector('.api-price').innerHTML = `<input type="number" class="form-control form-control-sm" name="api_price" value="${api_price.toFixed(2)}" step="0.01" disabled>`;
+            // --- THIS IS THE FIX: REMOVED 'disabled' ATTRIBUTE ---
+            row.querySelector('.api-price').innerHTML = `<input type="number" class="form-control form-control-sm" name="api_price" value="${api_price.toFixed(2)}" step="0.01">`;
             row.querySelector('.markup-percent').innerHTML = `<input type="number" class="form-control form-control-sm" name="markup_percentage" value="${markup.toFixed(2)}" step="0.01">`;
             row.querySelector('.selling-price').innerHTML = `<input type="number" class="form-control form-control-sm" name="selling_price" value="${selling_price.toFixed(0)}" step="1">`;
             
@@ -195,7 +185,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const row = target.closest('tr.editing');
         if (!row) return;
 
-        if (target.name === 'markup_percentage') {
+        if (target.name === 'markup_percentage' || target.name === 'api_price') {
             updateCalculationsOnMarkup(row);
         } else if (target.name === 'selling_price') {
             updateCalculationsOnPrice(row);
@@ -205,10 +195,7 @@ document.addEventListener('DOMContentLoaded', function() {
     table.addEventListener('change', function(e) {
         if (e.target.classList.contains('status-toggle')) {
             const row = e.target.closest('tr');
-            const data = {
-                id: row.dataset.id,
-                status: e.target.checked ? 'active' : 'inactive'
-            };
+            const data = { id: row.dataset.id, status: e.target.checked ? 'active' : 'inactive' };
             fetch('ajax_update_smileone_package_status.php', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) })
             .then(res => res.json()).then(result => {
                 if(result.success) {
