@@ -1,6 +1,8 @@
 <?php
-// File: admin/add_game.php (Full Corrected Version)
-require_once 'admin_header.php';
+// File: admin/add_game.php (Restructured to fix Header Error)
+
+// === START EDIT: All PHP logic is moved to the top ===
+require_once 'auth_check.php'; // Includes session_start() which must be before any output
 require_once 'db_connect.php';
 
 $error_message = ""; // Initialize error message variable
@@ -17,14 +19,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $game_name = trim($_POST["game_name"]);
             $description = $_POST["description"];
             $status = $_POST["status"];
-            // -- ຄ່າໃໝ່ທີ່ເພີ່ມເຂົ້າມາ --
-            $exchange_rate = (float)($_POST['exchange_rate'] ?? 1.0);
-            $default_markup = (int)($_POST['default_markup'] ?? 15);
             $image_path = null;
 
             if (isset($_FILES["game_image"]) && $_FILES["game_image"]["error"] == 0) {
                 $target_dir = "../uploads/games/";
-                if (!is_dir($target_dir)) { mkdir($target_dir, 0755, true); }
+                if (!is_dir($target_dir)) {
+                    mkdir($target_dir, 0755, true);
+                }
                 $new_filename = uniqid() . '-' . basename($_FILES["game_image"]["name"]);
                 if (move_uploaded_file($_FILES["game_image"]["tmp_name"], $target_dir . $new_filename)) {
                     $image_path = "uploads/games/" . $new_filename;
@@ -32,29 +33,24 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     throw new Exception("ບໍ່ສາມາດອັບໂຫລດຮູບໄດ້.");
                 }
             }
-
-            // -- ອັບເດດຄຳສັ່ງ SQL ໃຫ້ຮອງຮັບຄ່າໃໝ່ --
-            $stmt_game = $conn->prepare("INSERT INTO games (name, description, status, image_url, exchange_rate, default_markup) VALUES (?, ?, ?, ?, ?, ?)");
+            
+            $stmt_game = $conn->prepare("INSERT INTO games (name, description, status, image_url) VALUES (?, ?, ?, ?)");
             if ($stmt_game === false) {
                 throw new Exception("SQL Prepare Failed for games: " . $conn->error);
             }
-            // -- ອັບເດດ bind_param ໃຫ້ກົງກັນ --
-            $stmt_game->bind_param("ssssdi", $game_name, $description, $status, $image_path, $exchange_rate, $default_markup);
+            $stmt_game->bind_param("ssss", $game_name, $description, $status, $image_path);
             $stmt_game->execute();
             $game_id = $conn->insert_id;
             $stmt_game->close();
 
-            // 2. Save Custom Fields (Corrected Logic)
+            // 2. Save Custom Fields
             if (isset($_POST['field_label']) && is_array($_POST['field_label'])) {
                 $sql_field = "INSERT INTO game_fields (game_id, field_label, field_name, placeholder, field_type, field_options, display_order) VALUES (?, ?, ?, ?, ?, ?, ?)";
                 $stmt_field = $conn->prepare($sql_field);
-
                 if ($stmt_field === false) {
                     throw new Exception("SQL Prepare Failed for game_fields: " . $conn->error);
                 }
-                
                 $stmt_field->bind_param("isssssi", $game_id, $label_var, $name_var, $placeholder_var, $type_var, $options_var, $order_var);
-
                 foreach ($_POST['field_label'] as $index => $current_label) {
                     if (!empty($current_label)) {
                         $label_var = $current_label;
@@ -63,7 +59,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         $type_var = $_POST['field_type'][$index] ?? 'text';
                         $options_var = ($type_var === 'select') ? ($_POST['field_options'][$index] ?? '') : null;
                         $order_var = $index + 1;
-                        
                         if (!$stmt_field->execute()) {
                             throw new Exception("Execute failed for game_fields: " . $stmt_field->error);
                         }
@@ -73,6 +68,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             }
 
             $conn->commit();
+            // Now this header() call will work because no HTML has been sent yet
             header("location: manage_games.php");
             exit();
 
@@ -82,6 +78,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
     }
 }
+// === END EDIT ===
+
+// Now we can start outputting HTML
+require_once 'admin_header.php';
 ?>
 <script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
 <script>
@@ -101,27 +101,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             <div class="card-body">
                 <div class="mb-3"><label class="form-label fw-bold">1. ອັບໂຫລດຮູບພາບເກມ:</label><input type="file" name="game_image" class="form-control" accept="image/*" required></div>
                 <div class="mb-3"><label class="form-label fw-bold">2. ໃສ່ຊື່ເກມ:</label><input type="text" name="game_name" class="form-control" required></div>
-                <div class="mb-3"><label class="form-label fw-bold">3. ເນື້ອຫາ/ຄຳອະທິບາຍ (ສະແດງໃນໜ້າເຕີມເກມ):</label><textarea id="game_description" name="description"></textarea></div>
-                
-                <div class="row">
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label fw-bold">ອັດຕາແລກປ່ຽນ (ຈາກ IDR, ຕົວຢ່າງ: 0.0014):</label>
-                        <input type="text" name="exchange_rate" class="form-control" value="0.0014">
-                        <small class="form-text text-muted">ໃຊ້ສະເພາະເກມທີ່ດຶງຈາກ API TokoVoucher.</small>
-                    </div>
-                    <div class="col-md-6 mb-3">
-                        <label class="form-label fw-bold">ກຳໄລເລີ່ມຕົ້ນ (%):</label>
-                        <input type="number" name="default_markup" class="form-control" value="15">
-                        <small class="form-text text-muted">ລະບົບຈະເອົາ % ນີ້ໄປບວກໃສ່ລາຄາຕົ້ນທຶນ.</small>
-                    </div>
-                </div>
+                <div class="mb-3"><label class="form-label fw-bold">4. ເນື້ອຫາ/ຄຳອະທິບາຍ (ສະແດງໃນໜ້າເຕີມເກມ):</label><textarea id="game_description" name="description"></textarea></div>
                 <div class="mb-3"><label class="form-label fw-bold">ສະຖານະ:</label><select name="status" class="form-select"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
             </div>
         </div>
 
         <div class="card shadow mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h6 class="m-0 font-weight-bold text-primary">4. ຕົວກຳຫນົດຊ່ອງຂໍ້ມູນ (UID, Server, etc.)</h6>
+                <h6 class="m-0 font-weight-bold text-primary">3. ຕົວກຳຫນົດຊ່ອງຂໍ້ມູນ (UID, Server, etc.)</h6>
                 <button type="button" id="addFieldBtn" class="btn btn-sm btn-success"><i class="fas fa-plus"></i> ເພີ່ມຊ່ອງຂໍ້ມູນ</button>
             </div>
             <div class="card-body" id="fieldsContainer">
@@ -144,7 +131,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             </select>
         </div>
         <div class="col-md-3 options-container" style="display: none;">
-            <input name="field_options[]" class="form-control" placeholder="ໂຕເລືອກ (ຄັ່ນດ້ວຍ,) ເຊັ່ນ ASIA,EU">
+            <input name="field_options[]" class="form-control" placeholder="ໂຕເລືອກ (ຄั่นດ້ວຍ,) ເຊັ່ນ ASIA,EU">
         </div>
         <div class="col-md-1"><button type="button" class="btn btn-danger w-100 removeFieldBtn" title="ລຶບ"><i class="fas fa-trash"></i></button></div>
     </div>
@@ -160,6 +147,7 @@ document.addEventListener('DOMContentLoaded', function() {
         container.appendChild(clone);
     }
     
+    // Add one field by default when the page loads
     addField();
 
     document.getElementById('addFieldBtn').addEventListener('click', addField);
@@ -185,6 +173,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
-</div> <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</div> 
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
